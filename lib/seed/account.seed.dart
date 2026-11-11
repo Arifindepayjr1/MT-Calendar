@@ -1,0 +1,48 @@
+import '../model/account.model.dart';
+
+final List<Account> seedAccounts = [
+  Account(
+    id: 'acc_001',
+    userId: 'usr_001',
+    brokerId: 'brk_002',
+    accountNumber: '12345678',
+    name: 'FTMO Challenge',
+    server: 'FTMO-Demo',
+    currency: 'USD',
+    initialBalance: 5000.00,
+    createdAt: DateTime.parse('2026-11-02T09:30:00Z'),
+  ),
+  Account(
+    id: 'acc_002',
+    userId: 'usr_001',
+    brokerId: 'brk_001',
+    accountNumber: '87654321',
+    name: 'VT Markets Live',
+    server: 'VTMarkets-Live02',
+    currency: 'USD',
+    initialBalance: 1000.00,
+    createdAt: DateTime.parse('2026-11-02T09:35:00Z'),
+  ),
+  Account(
+    id: 'acc_003',
+    userId: 'usr_001',
+    brokerId: 'brk_003',
+    accountNumber: '55443322',
+    name: 'IC Markets Raw Spread',
+    server: 'ICMarketsSC-Live05',
+    currency: 'USD',
+    initialBalance: 2500.00,
+    createdAt: DateTime.parse('2026-11-02T09:40:00Z'),
+  ),
+  Account(
+    id: 'acc_004',
+    userId: 'usr_001',
+    brokerId: 'brk_004',
+    accountNumber: '99887766',
+    name: 'Exness Zero Scalping',
+    server: 'Exness-MT5Real9',
+    currency: 'USD',
+    initialBalance: 500.00,
+    createdAt: DateTime.parse('2026-11-02T09:45:00Z'),
+  ),
+];
