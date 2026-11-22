@@ -56,6 +56,7 @@ app.*.map.json
 !/implement/create_strategy_form_section_spec.md
 !/implement/backend_strategies_api_spec.md
 !/implement/backend_auth_and_database_spec.md
+!/implement/auth_suite_spec.md
 
 # The backend is a separate NestJS repository with its own git history.
 /backend/

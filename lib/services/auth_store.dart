@@ -22,6 +22,7 @@ class AuthStore extends ChangeNotifier {
   String? _token;
   AuthUser? _user;
   bool _initialized = false;
+  bool _remember = true;
 
   String? get token => _token;
   AuthUser? get user => _user;
@@ -46,9 +47,12 @@ class AuthStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveSession(AuthSession session) async {
+  /// [remember] mirrors the "Trust this terminal (30 days)" checkbox. When it
+  /// is false the session only lives for the current app run.
+  Future<void> saveSession(AuthSession session, {bool remember = true}) async {
     _token = session.accessToken;
     _user = session.user;
+    _remember = remember;
     notifyListeners();
     await _persistSession();
   }
@@ -56,6 +60,7 @@ class AuthStore extends ChangeNotifier {
   Future<void> clear() async {
     _token = null;
     _user = null;
+    _remember = true;
     notifyListeners();
     if (!persist) return;
     try {
@@ -68,7 +73,7 @@ class AuthStore extends ChangeNotifier {
   }
 
   Future<void> _persistSession() async {
-    if (!persist || _token == null || _user == null) return;
+    if (!persist || !_remember || _token == null || _user == null) return;
     try {
       final prefs = preferences ?? await SharedPreferences.getInstance();
       await prefs.setString(_tokenKey, _token!);

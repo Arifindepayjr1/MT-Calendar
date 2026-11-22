@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:trader_log/screens/auth.screen.dart';
 import 'package:trader_log/services/auth_api_service.dart';
 import 'package:trader_log/services/auth_store.dart';
+import 'package:trader_log/services/trade_import_store.dart';
 
 const _bg = Color(0xFF101310);
 const _surface = Color(0xFF1A1F1B);
@@ -15,12 +16,14 @@ class SettingsScreen extends StatelessWidget {
   final AuthStore authStore;
   final AuthApiService authApi;
   final VoidCallback onAuthChanged;
+  final TradeImportStore? importStore;
 
   const SettingsScreen({
     super.key,
     required this.authStore,
     required this.authApi,
     required this.onAuthChanged,
+    this.importStore,
   });
 
   Future<void> _openAuth(BuildContext context) async {
@@ -144,6 +147,26 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  leading: Icon(
+                    importStore?.hasImport == true
+                        ? Icons.table_chart_outlined
+                        : Icons.upload_file_outlined,
+                    color: importStore?.hasImport == true ? _mint : _muted,
+                    size: 21,
+                  ),
+                  title: const Text(
+                    'Saved MT5 import',
+                    style: TextStyle(color: _ink, fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    importStore?.hasImport == true
+                        ? '${importStore!.data!.trades.length} trades saved on this device — kept after sign-in.'
+                        : 'No report imported yet. Upload one from the Home tab.',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+                ),
                 const ListTile(
                   contentPadding: EdgeInsets.symmetric(horizontal: 4),
                   leading: Icon(Icons.cloud_outlined, color: _muted, size: 21),

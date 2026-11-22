@@ -1,24 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:trader_log/model/auth.model.dart';
+import 'package:trader_log/screens/auth/create_account_step.screen.dart';
+import 'package:trader_log/screens/auth/login_step.screen.dart';
+import 'package:trader_log/screens/auth/otp_verification_step.screen.dart';
 import 'package:trader_log/services/auth_api_service.dart';
 import 'package:trader_log/services/auth_store.dart';
+import 'package:trader_log/theme/ledger_theme.dart';
 
-const _bg = Color(0xFF111411);
-const _surface = Color(0xFF1A1F1B);
-const _mint = Color(0xFFB7F7C4);
-const _coral = Color(0xFFFF7C7C);
-const _muted = Color(0xFF858D86);
-const _border = Color(0xFF303832);
-const _ink = Color(0xFFE8ECE8);
+enum AuthStep { login, createAccount, otp }
 
-/// Sign in / sign up against the backend JWT endpoints.
+/// Coordinates the three-screen Disciplined Ledger authentication suite and
+/// keeps the existing JWT backend as the source of truth.
 class AuthScreen extends StatefulWidget {
   final AuthApiService api;
   final AuthStore store;
+  final AuthStep initialStep;
+  final VoidCallback? onCompleted;
+  final VoidCallback? onGuest;
 
   const AuthScreen({
     super.key,
     required this.api,
     required this.store,
+    this.initialStep = AuthStep.login,
+    this.onCompleted,
+    this.onGuest,
   });
 
   @override
@@ -26,35 +32,44 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  bool _signUp = false;
+  late AuthStep _step;
+  AuthRegistrationDetails? _details;
+  String? _devCode;
   bool _loading = false;
   String? _error;
-  late final TextEditingController _email;
-  late final TextEditingController _password;
-  late final TextEditingController _name;
 
   @override
   void initState() {
     super.initState();
-    _email = TextEditingController();
-    _password = TextEditingController();
-    _name = TextEditingController();
+    _step = widget.initialStep;
   }
 
-  @override
-  void dispose() {
-    _email.dispose();
-    _password.dispose();
-    _name.dispose();
-    super.dispose();
+  void _goTo(AuthStep step) {
+    setState(() {
+      _step = step;
+      _error = null;
+    });
   }
 
-  Future<void> _submit() async {
-    final email = _email.text.trim();
-    final password = _password.text;
-    final name = _name.text.trim();
-    if (email.isEmpty || password.isEmpty || (_signUp && name.isEmpty)) {
-      setState(() => _error = 'Enter email, password${_signUp ? ' and name' : ''}.');
+  void _back() {
+    if (_step == AuthStep.otp) {
+      _goTo(AuthStep.createAccount);
+    } else if (_step == AuthStep.createAccount) {
+      _goTo(AuthStep.login);
+    } else if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(false);
+    } else if (widget.onGuest != null) {
+      widget.onGuest!();
+    }
+  }
+
+  Future<void> _signIn({
+    required String email,
+    required String password,
+    required bool trustTerminal,
+  }) async {
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _error = 'Enter your terminal ID and master cipher.');
       return;
     }
     setState(() {
@@ -62,15 +77,12 @@ class _AuthScreenState extends State<AuthScreen> {
       _error = null;
     });
     try {
-      final session = _signUp
-          ? await widget.api.signUp(
-              email: email,
-              password: password,
-              name: name,
-            )
-          : await widget.api.signIn(email: email, password: password);
-      await widget.store.saveSession(session);
-      if (mounted) Navigator.of(context).pop(true);
+      final session = await widget.api.signIn(
+        email: email,
+        password: password,
+      );
+      await widget.store.saveSession(session, remember: trustTerminal);
+      _finish();
     } on AuthApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (error) {
@@ -80,184 +92,177 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: _bg,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Text(
-          _signUp ? 'Create account' : 'Sign in',
-          style: const TextStyle(
-            color: _ink,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'TradeLog uses a JWT from the backend to save your playbook drafts.',
-                style: TextStyle(color: _muted, fontSize: 14, height: 1.5),
-              ),
-              const SizedBox(height: 18),
-              _modeToggle(),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: _surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _border),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_signUp) ...[
-                      _field(label: 'Name', controller: _name, icon: Icons.person_outline),
-                      const SizedBox(height: 14),
-                    ],
-                    _field(
-                      label: 'Email',
-                      controller: _email,
-                      icon: Icons.mail_outline,
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    const SizedBox(height: 14),
-                    _field(
-                      label: 'Password',
-                      controller: _password,
-                      icon: Icons.lock_outline,
-                      obscure: true,
-                    ),
-                  ],
-                ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  style: const TextStyle(color: _coral, fontSize: 13),
-                ),
-              ],
-              const SizedBox(height: 22),
-              SizedBox(
-                height: 50,
-                child: FilledButton(
-                  onPressed: _loading ? null : _submit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _mint,
-                    foregroundColor: const Color(0xFF111411),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _loading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Color(0xFF111411),
-                          ),
-                        )
-                      : Text(
-                          _signUp ? 'Create account' : 'Sign in',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _requestCode(AuthRegistrationDetails details) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final request = await widget.api.requestCode(
+        email: details.email,
+        password: details.password,
+        name: details.name,
+        framework: details.framework,
+      );
+      if (!mounted) return;
+      setState(() {
+        _details = details;
+        _devCode = request.devCode;
+        _step = AuthStep.otp;
+      });
+    } on AuthApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
-  Widget _modeToggle() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _border),
-      ),
-      child: Row(
-        children: [
-          _modeButton(label: 'Sign in', selected: !_signUp),
-          _modeButton(label: 'Sign up', selected: _signUp),
+  Future<void> _resend() async {
+    final details = _details;
+    if (details == null) return;
+    setState(() => _error = null);
+    try {
+      final request = await widget.api.requestCode(
+        email: details.email,
+        password: details.password,
+        name: details.name,
+        framework: details.framework,
+      );
+      if (!mounted) return;
+      setState(() => _devCode = request.devCode);
+    } on AuthApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
+  }
+
+  Future<void> _verify(String code) async {
+    final details = _details;
+    if (details == null) {
+      setState(() => _error = 'Restart registration to request a new code.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final session = await widget.api.verifyCode(
+        email: details.email,
+        code: code,
+      );
+      await widget.store.saveSession(session);
+      _finish();
+    } on AuthApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _finish() {
+    if (widget.onCompleted != null) {
+      widget.onCompleted!();
+    } else if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  void _forgotCipher() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: LedgerColors.surface,
+        title: const Text(
+          'Recover your cipher',
+          style: TextStyle(color: LedgerColors.ink, fontSize: 16),
+        ),
+        content: const Text(
+          'Enter the master cipher you used when you created the account. '
+          'If you have not registered yet, create a new trader account.',
+          style: TextStyle(color: LedgerColors.mutedAlt, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _goTo(AuthStep.createAccount);
+            },
+            style: LedgerWidgets.mintButton(height: 38),
+            child: const Text('Create Account'),
+          ),
         ],
       ),
     );
   }
 
-  Widget _modeButton({required String label, required bool selected}) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() {
-          _signUp = label == 'Sign up';
-          _error = null;
-        }),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? _mint : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? _bg : _muted,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  @override
+  Widget build(BuildContext context) {
+    final String title;
+    final IconData mark;
+    switch (_step) {
+      case AuthStep.login:
+        title = 'Log In';
+        mark = Icons.show_chart_rounded;
+        break;
+      case AuthStep.createAccount:
+        title = 'Create Account';
+        mark = Icons.person_add_alt_1_outlined;
+        break;
+      case AuthStep.otp:
+        title = 'Otp Verification';
+        mark = Icons.bolt_rounded;
+        break;
+    }
 
-  Widget _field({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    bool obscure = false,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextField(
-      controller: controller,
-      obscureText: obscure,
-      keyboardType: keyboardType,
-      style: const TextStyle(color: _ink, fontSize: 14),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(color: _muted, fontSize: 13),
-        prefixIcon: Icon(icon, color: _muted, size: 18),
-        filled: true,
-        fillColor: const Color(0xFF121813),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _mint),
-        ),
+    return Scaffold(
+      backgroundColor: LedgerColors.background,
+      appBar: LedgerWidgets.appBar(
+        title: title,
+        mark: mark,
+        onBack: _back,
+      ),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        child: switch (_step) {
+          AuthStep.login => LoginStep(
+              key: const ValueKey('login'),
+              loading: _loading,
+              error: _error,
+              initialEmail: _details?.email,
+              onSubmit: _signIn,
+              onCreateAccount: () => _goTo(AuthStep.createAccount),
+              onForgotCipher: _forgotCipher,
+              onGuest: widget.onGuest,
+            ),
+          AuthStep.createAccount => CreateAccountStep(
+              key: const ValueKey('create'),
+              loading: _loading,
+              error: _error,
+              initialDetails: _details,
+              onSubmit: _requestCode,
+              onSignIn: () => _goTo(AuthStep.login),
+            ),
+          AuthStep.otp => OtpVerificationStep(
+              key: const ValueKey('otp'),
+              email: _details?.email ?? '',
+              devCode: _devCode,
+              loading: _loading,
+              error: _error,
+              onVerify: _verify,
+              onResend: _resend,
+              onEditEmail: () => _goTo(AuthStep.createAccount),
+            ),
+        },
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
 import 'package:trader_log/model/trade.model.dart';
+import 'package:trader_log/services/trade_import_store.dart';
 import 'package:trader_log/widgets/home_app_bar.dart';
 import 'package:trader_log/widgets/profile_greeting_header.dart';
 import 'package:trader_log/widgets/current_balance_card.dart';
@@ -33,8 +34,9 @@ class HomeImportData {
 
 class HomeScreen extends StatefulWidget {
   final ValueChanged<HomeImportData>? onImported;
+  final TradeImportStore? importStore;
 
-  const HomeScreen({super.key, this.onImported});
+  const HomeScreen({super.key, this.onImported, this.importStore});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -58,6 +60,24 @@ class _HomeScreenState extends State<HomeScreen> {
   // Balance tracking (defaults before upload, updated from HTML Deals / Summary on upload)
   double _initialDeposit = 5000.00;
   double? _extractedFinalBalance;
+
+  @override
+  void initState() {
+    super.initState();
+    // Restore the last uploaded report so signing in (or restarting the app)
+    // never loses the trader's Excel/HTML data.
+    final saved = widget.importStore?.data;
+    if (saved != null && saved.trades.isNotEmpty) {
+      _trades = saved.trades;
+      _hasImported = true;
+      _accountName = saved.accountName;
+      _brokerAndNumber = saved.brokerAndNumber;
+      _accountCurrency = saved.currency;
+      _initialDeposit = saved.initialDeposit;
+      _extractedFinalBalance = saved.finalBalance;
+      _syncSubtitle = saved.syncSubtitle;
+    }
+  }
 
   /// Converts raw file bytes into a readable String (handles UTF-16LE & UTF-8).
   String _decodeBytes(List<int> bytes) {
@@ -368,6 +388,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ? lastDealBalance - totalNetPnl
         : _initialDeposit;
 
+    final subtitle =
+        'Imported ${file.name} · ${extracted.length} positions ($detectedCurrency)';
+
     setState(() {
       _trades = extracted;
       _hasImported = true;
@@ -379,9 +402,21 @@ class _HomeScreenState extends State<HomeScreen> {
       _initialDeposit = importedInitialDeposit;
       _extractedFinalBalance = lastDealBalance;
 
-      _syncSubtitle =
-          'Imported ${file.name} · ${extracted.length} positions ($detectedCurrency)';
+      _syncSubtitle = subtitle;
     });
+
+    // Persist before any auth navigation so the report survives login/restart.
+    await widget.importStore?.save(
+      ImportedAccount(
+        trades: List.unmodifiable(extracted),
+        accountName: importedName,
+        brokerAndNumber: importedBrokerAndNumber,
+        currency: detectedCurrency,
+        syncSubtitle: subtitle,
+        initialDeposit: importedInitialDeposit,
+        finalBalance: lastDealBalance,
+      ),
+    );
 
     widget.onImported?.call(
       HomeImportData(

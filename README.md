@@ -2,6 +2,20 @@
 
 A new Flutter project.
 
+## Authentication and saved MT5 reports
+
+The app opens on a three-screen terminal auth suite — Log In, Create Account
+and OTP Verification — backed by the NestJS JWT endpoints in `backend/`. Log In
+uses `POST /api/auth/login`; Create Account requests a 6-digit code and the OTP
+screen redeems it for a JWT. "Continue as guest" keeps the app usable offline,
+and Settings can reopen the suite at any time. See
+`implement/auth_suite_spec.md` for the full design.
+
+Uploaded MT5 HTML/Excel reports are parsed on the Home tab and saved to
+`SharedPreferences` by `TradeImportStore`. They survive login, sign-out and app
+restarts: importing a report, logging in, then reopening the app shows the same
+trades, balance and account context. Drawings stay per trade as before.
+
 ## Advanced trade chart
 
 Each trade opens with a TradeCanvas candlestick chart hosted in a WebView

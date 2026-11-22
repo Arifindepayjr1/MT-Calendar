@@ -8,15 +8,18 @@ import 'package:trader_log/screens/strategies.screen.dart';
 import 'package:trader_log/services/auth_api_service.dart';
 import 'package:trader_log/services/auth_store.dart';
 import 'package:trader_log/services/strategy_api_service.dart';
+import 'package:trader_log/services/trade_import_store.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   final StrategyApiService strategyApi;
   final AuthStore? authStore;
+  final TradeImportStore? importStore;
 
   const MainNavigationScreen({
     super.key,
     this.strategyApi = const StrategyApiService(),
     this.authStore,
+    this.importStore,
   });
 
   @override
@@ -38,7 +41,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     _authStore.initialize();
+    widget.importStore?.initialize();
   }
+
+  /// Imported MT5 data is read from the device store first so it is identical
+  /// before login, after login, and after a restart.
+  List<Trade> get _activeTrades =>
+      widget.importStore?.data?.trades ?? _trades;
+  String get _activeAccountName =>
+      widget.importStore?.data?.accountName ?? _accountName;
+  String get _activeBrokerAndNumber =>
+      widget.importStore?.data?.brokerAndNumber ?? _brokerAndNumber;
+  String get _activeCurrency =>
+      widget.importStore?.data?.currency ?? _currency;
+  double get _activeInitialDeposit =>
+      widget.importStore?.data?.initialDeposit ?? _initialDeposit;
 
   static const List<_NavigationItem> _navigationItems = [
     _NavigationItem(
@@ -85,17 +102,29 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final importStore = widget.importStore;
+    if (importStore == null) return _buildRoot(context);
+    return AnimatedBuilder(
+      animation: importStore,
+      builder: (context, _) => _buildRoot(context),
+    );
+  }
+
+  Widget _buildRoot(BuildContext context) {
     final strategyApi = widget.strategyApi.withToken(
       () => _authStore.token,
     );
     final sections = <Widget>[
-      HomeScreen(onImported: _acceptImport),
+      HomeScreen(
+        onImported: _acceptImport,
+        importStore: widget.importStore,
+      ),
       CalendarScreen(
-        trades: _trades,
-        accountName: _accountName,
-        brokerAndNumber: _brokerAndNumber,
-        currency: _currency,
-        initialDeposit: _initialDeposit,
+        trades: _activeTrades,
+        accountName: _activeAccountName,
+        brokerAndNumber: _activeBrokerAndNumber,
+        currency: _activeCurrency,
+        initialDeposit: _activeInitialDeposit,
         dayNotes: _dayNotes,
         journals: _journals,
         onDayNoteChanged: (key, note) => setState(() => _dayNotes[key] = note),
@@ -104,7 +133,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onGoHome: () => _selectSection(0),
       ),
       StrategiesScreen(
-        accountName: _accountName,
+        accountName: _activeAccountName,
         api: strategyApi,
       ),
       const _PrimarySectionScreen(
@@ -117,6 +146,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         authStore: _authStore,
         authApi: const AuthApiService(),
         onAuthChanged: () => setState(() {}),
+        importStore: widget.importStore,
       ),
     ];
 

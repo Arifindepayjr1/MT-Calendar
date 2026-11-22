@@ -49,7 +49,10 @@ the schema in development. `docker-compose.yml` exposes Postgres on host port
 Tables:
 
 - `users` — uuid pk, unique lowercased email, display name, `passwordHash`
-  (`select: false`), `createdAt`.
+  (`select: false`), nullable `framework`, `createdAt`.
+- `auth_codes` — uuid pk, email, bcrypt-hashed 6-digit code and password hash
+  (both `select: false`), name, framework, `expiresAt`, `attempts`, `createdAt`.
+  Short-lived; deleted when a code is consumed or replaced.
 - `playbooks` — stable slug pk, card metrics, hero/telemetry metrics, status and
   sync labels, jsonb badges.
 - `strategy_rules` — uuid pk, `entry | risk` group, position, text, verified,
@@ -76,6 +79,10 @@ client on its next fetch.
 4. `JwtStrategy` reads the Bearer header, checks expiry/signature and rejects
    tokens whose `sub` no longer exists in `users`.
 5. `GET /api/auth/me` returns the validated public user.
+6. The Create Account → OTP path uses `POST /auth/request-code` to store a
+   hashed 6-digit code (10-minute TTL, five attempts) and `POST /auth/verify-code`
+   to create the user with the stored hash and return the same JWT shape.
+   `devCode` is echoed only in development because no email/SMS provider exists.
 
 Protected strategy routes use `@UseGuards(JwtAuthGuard)` and
 `@CurrentUser('id')`, so a draft can never be attributed to another account.
@@ -86,6 +93,8 @@ Protected strategy routes use `@UseGuards(JwtAuthGuard)` and
 | --- | --- | --- | --- |
 | POST | `/api/auth/signup` | public | Create account, return JWT |
 | POST | `/api/auth/login` | public | Login, return JWT |
+| POST | `/api/auth/request-code` | public | Issue hashed OTP, return devCode in dev |
+| POST | `/api/auth/verify-code` | public | Redeem OTP, create user, return JWT |
 | GET | `/api/auth/me` | Bearer | Current public user |
 | GET | `/api/strategies` | public | Overview cards and KPIs |
 | GET | `/api/strategies/:id` | public | Rulebook detail |
@@ -99,20 +108,26 @@ return 401; unknown strategy ids return 404 with `{"error":"Strategy not found."
 ## 6. Flutter session flow
 
 `AuthStore` is initialised in `main()` from SharedPreferences, so a token
-survives app restarts. The Settings tab shows the current user and opens
-`AuthScreen`; a successful sign-in or sign-up saves `AuthSession` to the store
-and pops back. `MainNavigationScreen` gives `StrategyApiService` a
-`tokenProvider` closure that reads `authStore.token` at request time, so draft
-POSTs use the current token and public catalogue reads remain unchanged.
+survives app restarts. `main()` also initialises `TradeImportStore`; the local
+MT5 report is stored under its own SharedPreferences key and is never cleared
+by sign-in or sign-out. The app opens on the three-screen auth suite unless the
+user chooses "Continue as guest"; the Settings tab can also open the suite.
+A successful login or OTP verification saves `AuthSession` to the store.
+`MainNavigationScreen` gives `StrategyApiService` a `tokenProvider` closure that
+reads `authStore.token` at request time, so draft POSTs use the current token
+and public catalogue reads remain unchanged. `HomeScreen` rehydrates from
+`TradeImportStore.data` on construction, so the imported report is still there
+after login and after a restart.
 
 ## 7. API client tooling
 
 - Bruno: `backend/bruno` collection, `local` environment. `auth/Sign up` and
   `auth/Login` save `accessToken` to the `token` variable via a post-response
-  script. Protected requests send `Authorization: Bearer {{token}}`.
+  script. `auth/Request code` saves `devCode` to `otp` and `auth/Verify code`
+  saves a fresh token. Protected requests send `Authorization: Bearer {{token}}`.
 - Postman: import `backend/postman/TraderLog.postman_collection.json` and
   `TraderLog.local.postman_environment.json`. The collection test scripts write
-  the same `token` variable.
+  the same `token`/`otp` variables.
 
 ## 8. Verification
 

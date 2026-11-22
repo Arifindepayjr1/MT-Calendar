@@ -43,6 +43,35 @@ class AuthApiService {
     return AuthSession.fromJson(json);
   }
 
+  /// Starts passwordless onboarding. The backend stores a hashed 6-digit code
+  /// and returns it as `devCode` when email/SMS delivery is not configured.
+  Future<AuthCodeRequest> requestCode({
+    required String email,
+    required String password,
+    required String name,
+    String? framework,
+  }) async {
+    final json = await _post('auth/request-code', {
+      'email': email,
+      'password': password,
+      'name': name,
+      if (framework != null && framework.isNotEmpty) 'framework': framework,
+    });
+    return AuthCodeRequest.fromJson(json);
+  }
+
+  /// Exchanges the 6-digit code for a JWT session and creates the account.
+  Future<AuthSession> verifyCode({
+    required String email,
+    required String code,
+  }) async {
+    final json = await _post('auth/verify-code', {
+      'email': email,
+      'code': code,
+    });
+    return AuthSession.fromJson(json);
+  }
+
   Future<AuthUser> me(String token) async {
     final json = await _get('auth/me', token);
     return AuthUser.fromJson(json);

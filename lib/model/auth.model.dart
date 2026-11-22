@@ -3,11 +3,13 @@ class AuthUser {
   final String id;
   final String email;
   final String name;
+  final String? framework;
 
   const AuthUser({
     required this.id,
     required this.email,
     required this.name,
+    this.framework,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
@@ -15,6 +17,7 @@ class AuthUser {
       id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
       name: json['name'] as String? ?? '',
+      framework: json['framework'] as String?,
     );
   }
 
@@ -22,6 +25,7 @@ class AuthUser {
         'id': id,
         'email': email,
         'name': name,
+        if (framework != null) 'framework': framework,
       };
 }
 
@@ -55,4 +59,57 @@ class AuthSession {
         'expiresIn': expiresIn,
         'user': user.toJson(),
       };
+}
+
+/// Response from POST /api/auth/request-code.
+///
+/// `devCode` is only populated when the backend runs with AUTH_DEV_CODE enabled
+/// (the default in development) because email/SMS delivery is not configured.
+class AuthCodeRequest {
+  final String email;
+  final int expiresInSeconds;
+  final String? devCode;
+
+  const AuthCodeRequest({
+    required this.email,
+    required this.expiresInSeconds,
+    this.devCode,
+  });
+
+  factory AuthCodeRequest.fromJson(Map<String, dynamic> json) {
+    return AuthCodeRequest(
+      email: json['email'] as String? ?? '',
+      expiresInSeconds: (json['expiresInSeconds'] as num?)?.toInt() ?? 600,
+      devCode: json['devCode'] as String?,
+    );
+  }
+}
+
+/// Data collected on the Create Account step and forwarded with the code request.
+class AuthRegistrationDetails {
+  final String name;
+  final String email;
+  final String framework;
+  final String password;
+
+  const AuthRegistrationDetails({
+    required this.name,
+    required this.email,
+    required this.framework,
+    required this.password,
+  });
+
+  AuthRegistrationDetails copyWith({
+    String? name,
+    String? email,
+    String? framework,
+    String? password,
+  }) {
+    return AuthRegistrationDetails(
+      name: name ?? this.name,
+      email: email ?? this.email,
+      framework: framework ?? this.framework,
+      password: password ?? this.password,
+    );
+  }
 }

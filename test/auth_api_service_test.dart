@@ -67,6 +67,62 @@ void main() {
     });
   });
 
+  test('requestCode posts onboarding details and decodes the dev code',
+      () async {
+    final requests = <http.Request>[];
+    final api = AuthApiService(
+      baseUrl: _baseUrl,
+      client: MockClient((request) async {
+        requests.add(request);
+        return _json({
+          'email': 'trader@example.com',
+          'expiresInSeconds': 600,
+          'devCode': '842910',
+        });
+      }),
+    );
+
+    final request = await api.requestCode(
+      email: 'trader@example.com',
+      password: 'secret123',
+      name: 'Alex Mercer',
+      framework: 'ICT / SMC',
+    );
+
+    expect(requests.single.url.toString(), '$_baseUrl/api/auth/request-code');
+    expect(jsonDecode(requests.single.body), {
+      'email': 'trader@example.com',
+      'password': 'secret123',
+      'name': 'Alex Mercer',
+      'framework': 'ICT / SMC',
+    });
+    expect(request.devCode, '842910');
+    expect(request.expiresInSeconds, 600);
+  });
+
+  test('verifyCode posts the six digit code and decodes the session', () async {
+    final requests = <http.Request>[];
+    final api = AuthApiService(
+      baseUrl: _baseUrl,
+      client: MockClient((request) async {
+        requests.add(request);
+        return _json(_session);
+      }),
+    );
+
+    final session = await api.verifyCode(
+      email: 'trader@example.com',
+      code: '842910',
+    );
+
+    expect(requests.single.url.toString(), '$_baseUrl/api/auth/verify-code');
+    expect(jsonDecode(requests.single.body), {
+      'email': 'trader@example.com',
+      'code': '842910',
+    });
+    expect(session.accessToken, 'jwt-token-1');
+  });
+
   test('me sends the Bearer token and decodes the user', () async {
     final requests = <http.Request>[];
     final api = AuthApiService(
