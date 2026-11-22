@@ -36,6 +36,11 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^8.1.2       # cross-platform file picker (Android, iOS, desktop)
   html: ^0.15.4             # Dart HTML parser (dart:html is web-only!)
+  http: ^1.6.0
+  webview_flutter: ^4.14.1
+  shared_preferences: ^2.5.6
+  web: ^1.1.2
+  webview_windows: ^0.4.0
 
 dev_dependencies:
   flutter_test:
@@ -63,6 +68,21 @@ flutter:
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/trade_chart/index.html
+    - assets/trade_chart/chart.js
+    - assets/trade_chart/THIRD_PARTY_LICENSES.txt
+    - assets/trade_chart/chunks/indicator.worker-D06Pfr5Q-DKXvqFqi.js
+    - assets/trade_chart/chunks/indicatorSettingsTabs-DleTzOW5-dC-KIdat.js
+    - assets/trade_chart/chunks/WebGLSeriesRenderer-BguY0pd5-B3l4feLP.js
+    - assets/trade_chart/chunks/WidgetCommandPalette-BAhkmYY8-Doo3YcUQ.js
+    - assets/trade_chart/chunks/WidgetDrawingSettings-CnLg4AuQ-CsY5IpHM.js
+    - assets/trade_chart/chunks/WidgetGoToDate-lsYrrxCJ-DOjMkaPL.js
+    - assets/trade_chart/chunks/WidgetHotkeySheet-B9nUWUpZ-CCxFJ1ey.js
+    - assets/trade_chart/chunks/WidgetIndicatorPicker-IDeyt_lX-SV33c-ZS.js
+    - assets/trade_chart/chunks/WidgetIndicatorSettings-C0WwIC-L-pocrgTBb.js
+    - assets/trade_chart/chunks/WidgetSettings-DSLqSvWW-B6DSO_dm.js
+    - assets/trade_chart/chunks/WidgetSymbolSearch-BZGLDmn4-BgIL_kwi.js
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

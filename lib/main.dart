@@ -1,12 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:trader_log/screens/home.screen.dart';
+import 'package:trader_log/screens/main_navigation.screen.dart';
+import 'package:trader_log/services/auth_store.dart';
+import 'package:trader_log/services/strategy_api_service.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final authStore = AuthStore();
+  await authStore.initialize();
+  runApp(MyApp(authStore: authStore));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final StrategyApiService strategyApi;
+  final AuthStore? authStore;
+
+  const MyApp({
+    super.key,
+    this.strategyApi = const StrategyApiService(),
+    this.authStore,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +30,10 @@ class MyApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF101310),
       ),
-      home: const HomeScreen(),
+      home: MainNavigationScreen(
+        strategyApi: strategyApi,
+        authStore: authStore,
+      ),
     );
   }
 }

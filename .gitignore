@@ -48,4 +48,23 @@ app.*.map.json
 .widget_preview/
 
 # Local implementation notes & planning docs (not for version control)
-/implement/
+/implement/*
+!/implement/trade_details_section_spec.md
+!/implement/trade_canvas_replay_strategy.md
+!/implement/strategies_section_spec.md
+!/implement/strategy_details_section_spec.md
+!/implement/create_strategy_form_section_spec.md
+!/implement/backend_strategies_api_spec.md
+!/implement/backend_auth_and_database_spec.md
+
+# The backend is a separate NestJS repository with its own git history.
+/backend/
+
+# Local backend secrets and database files
+/backend/.env
+/backend/.pgdata/
+/backend/node_modules/
+/backend/dist/
+/chart_engine/node_modules/
+/.wrangler/
+/tradecanvas-*.tgz

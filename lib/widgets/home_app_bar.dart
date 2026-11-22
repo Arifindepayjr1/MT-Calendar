@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String accountName;
   final VoidCallback? onUploadTap;
+  final Color? backgroundColor;
 
   const HomeAppBar({
     super.key,
     required this.accountName,
     this.onUploadTap,
+    this.backgroundColor,
   });
 
   String get _avatarInitial {
@@ -23,7 +25,7 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return AppBar(
-      backgroundColor: const Color(0xFF101310),
+      backgroundColor: backgroundColor ?? const Color(0xFF101310),
       elevation: 0,
       scrolledUnderElevation: 0,
       automaticallyImplyLeading: false,

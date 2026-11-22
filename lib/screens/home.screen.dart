@@ -15,8 +15,26 @@ import 'package:trader_log/widgets/win_rate_card.dart';
 import 'package:trader_log/widgets/net_pnl_card.dart';
 import 'package:trader_log/widgets/avg_rr_card.dart';
 
+class HomeImportData {
+  final List<Trade> trades;
+  final String accountName;
+  final String brokerAndNumber;
+  final String currency;
+  final double initialDeposit;
+
+  const HomeImportData({
+    required this.trades,
+    required this.accountName,
+    required this.brokerAndNumber,
+    required this.currency,
+    required this.initialDeposit,
+  });
+}
+
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ValueChanged<HomeImportData>? onImported;
+
+  const HomeScreen({super.key, this.onImported});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -337,6 +355,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     final totalNetPnl = extracted.fold(0.0, (sum, t) => sum + t.netProfit);
+    final importedName = extractedName != null && extractedName.isNotEmpty
+        ? extractedName
+        : _accountName;
+    final importedBrokerAndNumber =
+        extractedAccount != null && extractedAccount.isNotEmpty
+        ? '${(extractedCompany != null && extractedCompany.isNotEmpty) ? extractedCompany : 'MT5 Account'} (MT5 #$extractedAccount)'
+        : _brokerAndNumber;
+    final importedInitialDeposit = depositSum > 0
+        ? depositSum
+        : lastDealBalance != null
+        ? lastDealBalance - totalNetPnl
+        : _initialDeposit;
 
     setState(() {
       _trades = extracted;
@@ -344,27 +374,24 @@ class _HomeScreenState extends State<HomeScreen> {
       _visibleTradeCount = 5;
       _accountCurrency = detectedCurrency;
       _showInUsdForCent = false;
-
-      if (extractedName != null && extractedName.isNotEmpty) {
-        _accountName = extractedName;
-      }
-      if (extractedAccount != null && extractedAccount.isNotEmpty) {
-        final broker = (extractedCompany != null && extractedCompany.isNotEmpty)
-            ? extractedCompany
-            : 'MT5 Account';
-        _brokerAndNumber = '$broker (MT5 #$extractedAccount)';
-      }
-
-      if (depositSum > 0) {
-        _initialDeposit = depositSum;
-      } else if (lastDealBalance != null) {
-        _initialDeposit = lastDealBalance - totalNetPnl;
-      }
+      _accountName = importedName;
+      _brokerAndNumber = importedBrokerAndNumber;
+      _initialDeposit = importedInitialDeposit;
       _extractedFinalBalance = lastDealBalance;
 
       _syncSubtitle =
           'Imported ${file.name} · ${extracted.length} positions ($detectedCurrency)';
     });
+
+    widget.onImported?.call(
+      HomeImportData(
+        trades: List.unmodifiable(extracted),
+        accountName: importedName,
+        brokerAndNumber: importedBrokerAndNumber,
+        currency: detectedCurrency,
+        initialDeposit: importedInitialDeposit,
+      ),
+    );
   }
 
   // --- Currency Helpers ---
@@ -407,9 +434,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return (_winCount / denom) * 100.0;
   }
 
-  double get _netPnl => _hasImported
-      ? _trades.fold(0.0, (sum, t) => sum + t.netProfit)
-      : 4820.50;
+  double get _netPnl =>
+      _hasImported ? _trades.fold(0.0, (sum, t) => sum + t.netProfit) : 4820.50;
 
   double get _currentBalance {
     if (!_hasImported) return 9820.50;
@@ -465,10 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF101310),
-      appBar: HomeAppBar(
-        accountName: _accountName,
-        onUploadTap: _uploadFile,
-      ),
+      appBar: HomeAppBar(accountName: _accountName, onUploadTap: _uploadFile),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [

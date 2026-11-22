@@ -1,0 +1,16 @@
+{
+  "name": "trader-log-chart-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:proxy": "node scripts/dev-candles.mjs",
+    "build": "vite build && node scripts/sync-assets.mjs"
+  },
+  "dependencies": {
+    "@tradecanvas/chart": "2.16.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.12"
+  }
+}
