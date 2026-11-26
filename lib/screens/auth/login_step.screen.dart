@@ -12,7 +12,6 @@ class LoginStep extends StatefulWidget {
   }) onSubmit;
   final VoidCallback onCreateAccount;
   final VoidCallback onForgotCipher;
-  final VoidCallback? onGuest;
   final String? initialEmail;
 
   const LoginStep({
@@ -22,7 +21,6 @@ class LoginStep extends StatefulWidget {
     required this.onSubmit,
     required this.onCreateAccount,
     required this.onForgotCipher,
-    this.onGuest,
     this.initialEmail,
   });
 
@@ -211,18 +209,6 @@ class _LoginStepState extends State<LoginStep> {
             ),
             const SizedBox(height: 20),
             LedgerWidgets.securityFootnote(),
-            if (widget.onGuest != null) ...[
-              const SizedBox(height: 14),
-              Center(
-                child: TextButton(
-                  onPressed: widget.onGuest,
-                  child: const Text(
-                    'Continue as guest',
-                    style: TextStyle(color: LedgerColors.muted, fontSize: 12),
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),

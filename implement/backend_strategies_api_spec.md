@@ -67,8 +67,16 @@ Any other known id returns that playbook's own rules; an unknown id returns
 
 ### `GET /api/strategies/drafts` (Bearer)
 
-Returns the current user's drafts, newest first. Drafts live in Postgres and
-survive backend restarts.
+Returns the current user's drafts as a JSON array, newest first. The route is
+Bearer-protected and `StrategiesService.draftsForUser()` filters by the JWT's
+`sub` user id, so another account's drafts are never returned. Drafts live in
+Postgres and survive backend restarts. The Flutter `StrategiesScreen` fetches
+this endpoint after login and merges each draft into **All Setups** as a
+first-class "Your Setup" card. User setups sort above shared playbooks, respect
+the category chips, and open the same `StrategyDetailScreen` as shared playbooks.
+`StrategyDetail.fromDraft()` fills the identical hero, stats, rules, trade log
+and actions; with no assigned trades it shows zero/empty stats instead of a
+different layout.
 
 ### `POST /api/strategies` (Bearer)
 
@@ -92,7 +100,8 @@ returns `400`. Success returns:
 1. same-origin `/api/...` (web only, for a deployed API);
 2. `http://127.0.0.1:3000/api/...` (the local NestJS backend).
 
-A non-2xx response, non-JSON content type, or malformed map response is skipped.
+A non-2xx response, non-JSON content type, or malformed JSON shape is skipped.
+`fetchDrafts()` accepts the backend's JSON array; the other methods expect a map.
 When every candidate fails, the client throws `StrategyApiException` with a
 message telling the user to start the backend or deploy the API path. Passing
 `baseUrl` overrides both candidates, which is used by unit tests.
@@ -100,7 +109,10 @@ message telling the user to start the backend or deploy the API path. Passing
 The client also accepts a `tokenProvider` callback. `MainNavigationScreen`
 supplies `() => authStore.token`, so every request carries
 `Authorization: Bearer <jwt>` once the user signs in. `withToken()` copies the
-client while preserving injected test clients and base URLs.
+client while preserving injected test clients and base URLs. `CreateStrategyScreen`
+pops with `true` after a successful save; the Strategies tab reloads drafts and
+shows one confirmation snackbar so saving always ends back on the user's refreshed
+saved-strategy list.
 
 ## 5. Why this belongs in the backend
 
@@ -124,5 +136,5 @@ client while preserving injected test clients and base URLs.
   local NestJS backend is the working source in this build.
 - MT5 assignment, audit report generation and real adherence computation remain
   future backend work.
-- Creating a draft persists it for the user but does not add a playbook to the
-  public overview catalogue.
+- Creating a draft persists it for the user and appears in **All Setups** after
+  login, but it does not add a playbook to the public overview catalogue.

@@ -75,6 +75,45 @@ void main() {
     expect(result['id'], 'draft_7');
   });
 
+  test('fetchDrafts reads the user-scoped drafts array with the JWT', () async {
+    final requests = <http.Request>[];
+    final api = StrategyApiService(
+      baseUrl: _baseUrl,
+      tokenProvider: () => 'jwt-from-auth-store',
+      client: MockClient((request) async {
+        requests.add(request);
+        return _json([
+          {
+            'id': 'draft_9',
+            'name': 'London Sweep',
+            'savedAt': '2026-01-02T09:30:00.000Z',
+            'draftCount': 1,
+            'category': 'ictSmc',
+            'categories': ['ictSmc'],
+            'entryConditions': [
+              {'text': 'Mark the macro window', 'enabled': true},
+            ],
+            'disciplineRules': const [],
+            'sessions': ['London'],
+            'intervals': ['15M'],
+          },
+        ]);
+      }),
+    );
+
+    final drafts = await api.fetchDrafts();
+
+    expect(requests.single.method, 'GET');
+    expect(requests.single.url.toString(),
+        '$_baseUrl/api/strategies/drafts');
+    expect(requests.single.headers['authorization'],
+        'Bearer jwt-from-auth-store');
+    expect(drafts, hasLength(1));
+    expect(drafts.single.name, 'London Sweep');
+    expect(drafts.single.entryConditions.single.enabled, isTrue);
+    expect(api.hasToken, isTrue);
+  });
+
   test('attaches the current JWT when a token provider is set', () async {
     final requests = <http.Request>[];
     final api = StrategyApiService(

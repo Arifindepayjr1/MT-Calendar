@@ -23,6 +23,40 @@ Future<void> _pumpCreateScreen(
   await tester.pumpAndSettle();
 }
 
+class _SaveResultHost extends StatefulWidget {
+  final StrategyApiService api;
+  const _SaveResultHost({required this.api});
+
+  @override
+  State<_SaveResultHost> createState() => _SaveResultHostState();
+}
+
+class _SaveResultHostState extends State<_SaveResultHost> {
+  String _result = 'none';
+
+  Future<void> _open() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => CreateStrategyScreen(api: widget.api),
+      ),
+    );
+    setState(() => _result = saved == true ? 'saved' : 'not-saved');
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Column(
+          children: [
+            ElevatedButton(
+              onPressed: _open,
+              child: const Text('Open form'),
+            ),
+            Text('RESULT: $_result'),
+          ],
+        ),
+      );
+}
+
 void main() {
   testWidgets('create form shows every section and sticky actions',
       (tester) async {
@@ -99,23 +133,7 @@ void main() {
     await tester.tap(find.text('Save Strategy'));
     await tester.pumpAndSettle();
     expect(find.text('Enter a strategy name before saving.'), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const Key('strategy-name-field')),
-      'London Sweep',
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Save Strategy'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text('Draft "London Sweep" saved to backend (draft_1).'),
-      findsOneWidget,
-    );
-    expect(find.text('Saved to backend'), findsOneWidget);
+    expect(find.text('Create Strategy'), findsOneWidget);
   });
 
   testWidgets('save sends the complete draft to the backend', (tester) async {
@@ -160,5 +178,33 @@ void main() {
     expect(payload['disciplineRules'], isA<List<dynamic>>());
     expect(payload['sessions'], contains('London'));
     expect(payload['intervals'], contains('15M'));
+  });
+
+  testWidgets('successful save returns to the caller', (tester) async {
+    tester.view.physicalSize = const Size(390, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: _SaveResultHost(
+        api: fakeStrategyApi().withToken(() => 'jwt-from-auth-store'),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Open form'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create Strategy'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('strategy-name-field')),
+      'London Sweep',
+    );
+    await tester.tap(find.text('Save Strategy'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RESULT: saved'), findsOneWidget);
+    expect(find.text('Create Strategy'), findsNothing);
   });
 }

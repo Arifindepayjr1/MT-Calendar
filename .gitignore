@@ -57,6 +57,8 @@ app.*.map.json
 !/implement/backend_strategies_api_spec.md
 !/implement/backend_auth_and_database_spec.md
 !/implement/auth_suite_spec.md
+!/implement/mt5_historical_bridge_plan.md
+!/implement/mt5_windows_setup.md
 
 # The backend is a separate NestJS repository with its own git history.
 /backend/

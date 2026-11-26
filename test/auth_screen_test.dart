@@ -109,6 +109,8 @@ void main() {
     expect(find.text('Verify Code'), findsOneWidget);
     expect(find.text('Institutional Session Token'), findsOneWidget);
     expect(find.text('Resend in 00:46s'), findsOneWidget);
+    expect(find.byKey(const ValueKey('otp_dev_code')), findsOneWidget);
+    expect(find.text('Local dev code: 842910'), findsOneWidget);
 
     final requestCode = requests.firstWhere(
       (request) => request.url.path.endsWith('auth/request-code'),

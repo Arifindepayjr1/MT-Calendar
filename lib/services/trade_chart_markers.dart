@@ -58,6 +58,33 @@ class TradeChartMarkers {
   static const ambiguityMessage =
       'SL and TP touched in the same candle — exact order unknown.';
 
+  /// Only the imported entry and exit events. No inferred level touches,
+  /// zones or analysis state — used by the plain MT5 session chart.
+  static List<TradeChartMarker> entryExit(Trade trade) {
+    final prefix = 'traderlog:auto:${trade.id}';
+    final buy = trade.type == TradeType.buy;
+    return <TradeChartMarker>[
+      TradeChartMarker(
+        id: '$prefix:entry',
+        kind: 'entry',
+        timeMs: trade.openTime.toUtc().millisecondsSinceEpoch,
+        price: trade.openPrice,
+        direction: buy ? 'long' : 'short',
+        color: entryColor,
+        label: buy ? 'BUY' : 'SELL',
+      ),
+      TradeChartMarker(
+        id: '$prefix:exit',
+        kind: 'exit',
+        timeMs: trade.closeTime.toUtc().millisecondsSinceEpoch,
+        price: trade.closePrice,
+        direction: buy ? 'short' : 'long',
+        color: exitColor(trade.closeReason),
+        label: exitLabel(trade.closeReason),
+      ),
+    ];
+  }
+
   static List<TradeChartMarker> build({
     required Trade trade,
     required TradeLevelAnalysis analysis,
@@ -82,7 +109,7 @@ class TradeChartMarkers {
         timeMs: trade.closeTime.toUtc().millisecondsSinceEpoch,
         price: trade.closePrice,
         direction: buy ? 'short' : 'long',
-        color: _exitColor(trade.closeReason),
+        color: exitColor(trade.closeReason),
         label: exitLabel(trade.closeReason),
       ),
     ];
@@ -125,7 +152,7 @@ class TradeChartMarkers {
         CloseReason.other || CloseReason.unknown => 'EXIT',
       };
 
-  static String _exitColor(CloseReason reason) => switch (reason) {
+  static String exitColor(CloseReason reason) => switch (reason) {
         CloseReason.takeProfit => tpColor,
         CloseReason.stopLoss || CloseReason.stopOut => slColor,
         CloseReason.manual => manualColor,

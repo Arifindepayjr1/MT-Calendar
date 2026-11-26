@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^8.1.2       # cross-platform file picker (Android, iOS, desktop)
   html: ^0.15.4             # Dart HTML parser (dart:html is web-only!)
+  excel: ^4.0.6             # Pure Dart .xlsx workbook reader
   http: ^1.6.0
   webview_flutter: ^4.14.1
   shared_preferences: ^2.5.6

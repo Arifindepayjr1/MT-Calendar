@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:trader_log/main.dart';
 import 'package:trader_log/model/strategy_playbook.model.dart';
 import 'package:trader_log/screens/strategies.screen.dart';
@@ -34,7 +35,7 @@ void main() {
     expect(find.text('My Strategies'), findsOneWidget);
     expect(find.text('Manage your trading setups and rules'), findsOneWidget);
     expect(find.text('+ Create'), findsOneWidget);
-    expect(find.text('Playbooks'), findsOneWidget);
+    expect(find.text('Setups'), findsOneWidget);
     expect(find.text('Active Sets'), findsOneWidget);
     expect(find.text('Executions'), findsOneWidget);
     expect(find.text('Logged'), findsOneWidget);
@@ -58,14 +59,100 @@ void main() {
     expect(find.textContaining('DISCIPLINE RULE:'), findsOneWidget);
   });
 
+  testWidgets('saved setups appear inside All Setups for their owner',
+      (tester) async {
+    final requests = <http.Request>[];
+    final api = fakeStrategyApi(
+      token: 'jwt-from-auth-store',
+      requests: requests,
+    );
+    await _pumpStrategiesScreen(tester, api: api);
+
+    expect(find.textContaining('All Setups (6)'), findsOneWidget);
+    expect(find.textContaining('ICT / SMC (5)'), findsOneWidget);
+    expect(find.textContaining('YOUR SAVED STRATEGIES'), findsNothing);
+    expect(find.text('YOUR SETUP'), findsNWidgets(2));
+    expect(find.text('London Sweep'), findsOneWidget);
+    expect(find.text('NY Opening Drive'), findsOneWidget);
+
+    final drafts = requests
+        .where(
+          (request) => request.url.path.endsWith('/api/strategies/drafts'),
+        )
+        .toList();
+    expect(drafts, hasLength(1));
+    expect(drafts.single.headers['authorization'],
+        'Bearer jwt-from-auth-store');
+
+    // The saved setup opens the exact same detail screen as a shared playbook.
+    await tester.tap(find.text('London Sweep'));
+    await tester.pumpAndSettle();
+    expect(find.text('Strategy Details'), findsOneWidget);
+    expect(find.text('Your Setup'), findsOneWidget);
+    expect(find.text('Win Rate'), findsOneWidget);
+    expect(find.text('Profit Factor'), findsOneWidget);
+    expect(find.text('Assigned MT5 Trades'), findsOneWidget);
+    expect(find.text('Wait for the sweep, then enter on displacement.'),
+        findsOneWidget);
+    expect(find.text('TP1 at 2R'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.textContaining('Price Action (1)'));
+    await tester.tap(find.textContaining('Price Action (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('London Breakout'), findsOneWidget);
+    expect(find.text('London Sweep'), findsNothing);
+  });
+
+  testWidgets('saving returns to the list with the new draft visible',
+      (tester) async {
+    final requests = <http.Request>[];
+    final api = fakeStrategyApi(
+      token: 'jwt-from-auth-store',
+      requests: requests,
+      drafts: <Map<String, dynamic>>[],
+    );
+    await _pumpStrategiesScreen(tester, api: api);
+    expect(find.textContaining('All Setups (4)'), findsOneWidget);
+    expect(find.textContaining('YOUR SAVED STRATEGIES'), findsNothing);
+
+    await tester.tap(find.text('+ Create'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create Strategy'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('strategy-name-field')),
+      'Fresh Draft',
+    );
+    await tester.tap(find.text('Save Strategy'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create Strategy'), findsNothing);
+    expect(find.text('My Strategies'), findsOneWidget);
+    expect(find.textContaining('All Setups (5)'), findsOneWidget);
+    expect(find.textContaining('YOUR SAVED STRATEGIES'), findsNothing);
+    expect(find.text('YOUR SETUP'), findsOneWidget);
+    expect(find.text('Fresh Draft'), findsOneWidget);
+    expect(find.text('Strategy saved to your account.'), findsOneWidget);
+
+    expect(
+      requests
+          .where((request) => request.url.path.endsWith('/api/strategies/drafts'))
+          .length,
+      2,
+      reason: 'drafts reload once on open and once after the save result',
+    );
+  });
+
   testWidgets('category chips filter the visible playbooks', (tester) async {
     await _pumpStrategiesScreen(tester);
 
     expect(find.textContaining('All Setups (4)'), findsOneWidget);
-    expect(find.text('ICT / SMC (3)'), findsOneWidget);
-    expect(find.text('Price Action'), findsWidgets);
+    expect(find.textContaining('ICT / SMC (3)'), findsOneWidget);
+    expect(find.textContaining('Price Action (1)'), findsOneWidget);
 
-    await tester.tap(find.text('ICT / SMC (3)'));
+    await tester.tap(find.textContaining('ICT / SMC (3)'));
     await tester.pumpAndSettle();
     expect(find.text('ICT Silver Bullet'), findsOneWidget);
     expect(find.text('ICT Judas Swing'), findsOneWidget);
@@ -74,9 +161,9 @@ void main() {
 
     // The third chip sits just beyond a 390px viewport and must be scrolled
     // into view inside the horizontal filter strip.
-    await tester.ensureVisible(find.text('Price Action').first);
+    await tester.ensureVisible(find.textContaining('Price Action (1)'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Price Action').first);
+    await tester.tap(find.textContaining('Price Action (1)'));
     await tester.pumpAndSettle();
     expect(find.text('London Breakout'), findsOneWidget);
     expect(find.text('ICT Silver Bullet'), findsNothing);

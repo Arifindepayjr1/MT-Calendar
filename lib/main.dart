@@ -41,14 +41,12 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  bool _guest = false;
-
   void _enteredApp() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
     final authStore = widget.authStore ?? AuthStore();
-    final showAuth = widget.requireAuth && !authStore.isSignedIn && !_guest;
+    final showAuth = widget.requireAuth && !authStore.isSignedIn;
 
     return _app(
       home: showAuth
@@ -56,7 +54,6 @@ class _MyAppState extends State<MyApp> {
               api: const AuthApiService(),
               store: authStore,
               onCompleted: _enteredApp,
-              onGuest: () => setState(() => _guest = true),
             )
           : MainNavigationScreen(
               strategyApi: widget.strategyApi,

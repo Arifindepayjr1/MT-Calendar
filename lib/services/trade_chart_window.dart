@@ -29,8 +29,8 @@ class TradeChartWindow {
       context[interval] ?? context['1h']!;
 
   /// Intervals to try when no explicit timeframe was requested.
-  /// Short recent trades get fine-grained data; old/long trades fall back to
-  /// hourly so Yahoo is not asked for years of minute bars.
+  /// Short recent trades get fine-grained data; old/long trades use hourly bars
+  /// so a single bounded MT5 session request is sufficient.
   static List<String> fallbacks({
     required Duration tradeDuration,
     required Duration age,

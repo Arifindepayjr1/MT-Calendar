@@ -1,15 +1,16 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String accountName;
   final VoidCallback? onUploadTap;
+  final VoidCallback? onExportXlsxTap;
   final Color? backgroundColor;
 
   const HomeAppBar({
     super.key,
     required this.accountName,
     this.onUploadTap,
+    this.onExportXlsxTap,
     this.backgroundColor,
   });
 
@@ -88,6 +89,16 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
             onPressed: onUploadTap,
             icon: const Icon(
               Icons.upload_file_rounded,
+              color: Color(0xFFB7F7C4),
+              size: 22,
+            ),
+          ),
+        if (onExportXlsxTap != null)
+          IconButton(
+            tooltip: 'Export Imported Trades to XLSX',
+            onPressed: onExportXlsxTap,
+            icon: const Icon(
+              Icons.file_download_outlined,
               color: Color(0xFFB7F7C4),
               size: 22,
             ),

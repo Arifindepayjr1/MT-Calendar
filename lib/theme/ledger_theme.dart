@@ -97,11 +97,13 @@ abstract final class LedgerWidgets {
         ),
       );
 
-  /// Pinned app bar: back chevron, centred labelled title, profile avatar.
+  /// Pinned app bar: optional back chevron, centred labelled title, avatar.
+  /// A null [onBack] hides the chevron, so the root login step has no route
+  /// back to the main navigation.
   static PreferredSizeWidget appBar({
     required String title,
     required IconData mark,
-    required VoidCallback onBack,
+    VoidCallback? onBack,
   }) =>
       AppBar(
         backgroundColor: LedgerColors.background,
@@ -110,13 +112,15 @@ abstract final class LedgerWidgets {
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
         titleSpacing: 12,
-        leading: IconButton(
-          key: ValueKey('auth_back_$title'),
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: LedgerColors.ink, size: 19),
-          onPressed: onBack,
-          tooltip: 'Back',
-        ),
+        leading: onBack == null
+            ? null
+            : IconButton(
+                key: ValueKey('auth_back_$title'),
+                icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                    color: LedgerColors.ink, size: 19),
+                onPressed: onBack,
+                tooltip: 'Back',
+              ),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.max,

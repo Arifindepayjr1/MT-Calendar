@@ -1,5 +1,12 @@
 # TradeCanvas historical trade analysis — implementation strategy
 
+> **Superseded by the simplified MT5 chart.** The current chart fetches broker
+> candles for the trade's date, frames that session and shows only exact
+> entry/exit markers. Timeframe/date controls, full-screen mode, replay and
+> persisted user drawings are no longer part of the UI. See `README.md` and
+> `implement/mt5_historical_bridge_plan.md` for the current design. The sections
+> below are retained as historical context.
+
 ## 1. Architecture that was preserved
 
 The existing stack is unchanged:
@@ -7,27 +14,25 @@ The existing stack is unchanged:
 - TradingView **Lightweight Charts** through `@tradecanvas/chart`.
 - Vite ES-module bundle in `chart_engine/`.
 - Flutter iframe (web) / WebView (native) bridge.
-- Cloudflare Pages candle function in `functions/api/candles.js`.
-- Local development proxy in `chart_engine/scripts/dev-candles.mjs`.
+- NestJS `/api/mt5/*` bridge to an internal Python MetaTrader5 stdio worker.
 - Existing trade model, imported prices and persisted user drawings.
 
 No second chart library and no replay layer were introduced. The widget's own
 `replay` capability, replay toolbar button and duplicate full-screen button are
 explicitly disabled in `ChartWidget` options.
 
-## 2. Web dev candle loading
+## 2. Broker candle loading
 
-Browsers block direct Yahoo Finance requests from the app origin. The web
-chart requests `/api/candles` on its own origin; the Cloudflare Pages function
-validates the request and forwards it to Yahoo.
+The trade-history chart has exactly one data path:
 
-- `npx wrangler pages dev build/web` serves both static files and the function.
-- `flutter run -d chrome` only serves static files. Unknown paths return
-  `index.html` (HTTP 200 with HTML), so the service treats a non-JSON body as
-  "function missing" and falls back to `http://127.0.0.1:8787/api/candles`.
+`Flutter → NestJS /api/mt5/candles → Python MetaTrader5 → connected MT5 terminal`
 
-The fallback proxy imports the exact production `onRequest` handler and adds
-CORS headers, so validation is identical in dev and production.
+The exact broker symbol from the imported trade is sent unchanged. The worker
+uses `mt5.copy_rates_range()` and returns the whole session around the trade's
+UTC execution date. There is no Yahoo Finance proxy, no Cloudflare function and
+no dev candle proxy. Start the NestJS backend on port 3000 before running the
+chart; an unavailable MT5 terminal produces a visible error, not a substitute
+feed.
 
 ## 3. Real timeframe switching
 
@@ -48,13 +53,13 @@ their context windows:
 These are defaults, not zoom limits. `focusTrade` only calls
 `chart.setVisibleRange()`; it never slices the loaded data.
 
-`YahooCandleService.loadForTrade()` now:
+`Mt5CandleService.loadForTrade()` now:
 
 - rejects unsupported intervals before making a request,
-- uses the exact requested interval with no silent substitution,
-- derives `period1`/`period2` from the selected window,
+- maps the selected interval to the exact MT5 timeframe with no substitution,
+- requests the session for the trade's exact broker symbol and UTC date,
 - keeps the trade's original entry/SL/TP values untouched,
-- surfaces no-data and API errors as `CandleDataException`, which the UI shows
+- surfaces no-data and API errors as `Mt5CandleException`, which the UI shows
   as an empty/error state.
 
 `TradeChartWindow.effective()` resolves the interval used by both inline and
@@ -114,11 +119,12 @@ analysis remains in `SharedPreferences`.
 
 ## 7. Data accuracy
 
-XAUUSD/XAGUSD map to Yahoo futures (`GC=F`/`SI=F`) and are labelled as proxies,
-not MT5 spot prices. Imported MT5 entry, SL, TP and exit prices are authoritative
-and are never replaced by candle values. The candle service handles invalid
-JSON, non-JSON dev-server responses, 404s, 429s, unsupported intervals, empty
-responses and missing volume without fabricating data.
+Candles are the connected broker's own OHLC from MT5. Imported entry, SL, TP
+and exit prices are authoritative and are never replaced by candle values. The
+service handles invalid JSON, non-JSON responses, 404/503 errors, unsupported
+intervals, empty sessions and missing volume without fabricating data. The
+chart's `Data Source: MT5 | Broker: … | Symbol: …` badge is shown only when the
+backend confirmed `source: "mt5"`.
 
 ## 8. Bridge messages
 
@@ -140,38 +146,30 @@ JS → Flutter: `chartReady`, `seriesLoaded`, `chartError`, `analysisChanged`,
   bridge decoding and payload integrity.
 - `flutter build web --debug` — succeeds.
 - `cd chart_engine && npm run build` — regenerates both chart bundles.
-- Local smoke tests: the dev proxy and Pages function reject invalid intervals
-  and return real Yahoo OHLC for valid requests.
+- Live API smoke test: `/api/mt5/status` reports the connected broker, and
+  `/api/mt5/candles` returns real broker bars for the requested symbol/date.
 
 Manual check:
 
 ```sh
-cd chart_engine && npm run dev:proxy
+cd backend && npm run start:prod
 # second terminal
 flutter run -d web-server --web-port=8080
-# open http://localhost:8080
-```
-
-Or, without the proxy:
-
-```sh
-flutter build web
-npx wrangler pages dev build/web
+# open http://localhost:8080 and tap a completed trade
 ```
 
 ## 10. Limitations
 
-- Yahoo minute/hour data has provider retention limits; an old trade may have
-  no data for a fine timeframe. The app shows that error instead of silently
-  substituting another interval.
-- "Live" refresh is bounded by the 7-day recency rule and the proxy's 30 s
-  cache; it is the latest Yahoo candle, not tick streaming.
-- Gold/silver candles are futures proxies and may not match the broker's spot
-  feed. Imported trade prices remain the source of truth.
+- MT5 broker history retention is controlled by the broker/terminal; an old
+  trade may have no bars for a fine timeframe. The app shows that reason
+  instead of substituting another provider or interval.
+- "Latest candle" reads the newest real MT5 bar; the ticks endpoint prepares
+  live data but no WebSocket stream is implemented.
+- Candle/symbol responses are cached in NestJS for `MT5_CACHE_TTL_SECONDS`.
 - A candle that touches both SL and TP cannot be ordered from OHLC alone;
   lower-timeframe or tick data would be required to resolve it.
-- The dev proxy is only for local development; hosted builds need a real
-  same-origin `/api/candles` endpoint.
+- The chart requires a running NestJS backend and a logged-in MT5 terminal;
+  there is no offline or third-party chart feed.
 
 ## 11. Calendar typography
 

@@ -1,13 +1,16 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
+import 'package:http/http.dart' as http;
+import 'package:trader_log/model/journal.model.dart';
 import 'package:trader_log/model/trade.model.dart';
+import 'package:trader_log/services/strategy_api_service.dart';
 import 'package:trader_log/services/trade_import_store.dart';
+import 'package:trader_log/services/xlsx_downloader.dart';
 import 'package:trader_log/widgets/home_app_bar.dart';
 import 'package:trader_log/widgets/profile_greeting_header.dart';
 import 'package:trader_log/widgets/current_balance_card.dart';
@@ -15,6 +18,9 @@ import 'package:trader_log/widgets/total_trades_card.dart';
 import 'package:trader_log/widgets/win_rate_card.dart';
 import 'package:trader_log/widgets/net_pnl_card.dart';
 import 'package:trader_log/widgets/avg_rr_card.dart';
+
+const String workbookExportEndpoint =
+    'http://127.0.0.1:3000/api/workbook/export';
 
 class HomeImportData {
   final List<Trade> trades;
@@ -35,8 +41,19 @@ class HomeImportData {
 class HomeScreen extends StatefulWidget {
   final ValueChanged<HomeImportData>? onImported;
   final TradeImportStore? importStore;
+  /// Notes, strategies and rules the trader recorded in Calendar / Trade Detail.
+  final Map<String, Journal> journals;
+  final Map<String, String> dayNotes;
+  final StrategyApiService? strategyApi;
 
-  const HomeScreen({super.key, this.onImported, this.importStore});
+  const HomeScreen({
+    super.key,
+    this.onImported,
+    this.importStore,
+    this.journals = const {},
+    this.dayNotes = const {},
+    this.strategyApi,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -429,6 +446,162 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Loads the trader's saved strategies so their rules can be exported.
+  Future<List<Map<String, dynamic>>> _fetchExportStrategies() async {
+    final api = widget.strategyApi;
+    if (api == null || !api.hasToken) return const [];
+    try {
+      final drafts = await api.fetchDrafts();
+      return drafts
+          .map(
+            (draft) => <String, dynamic>{
+              'name': draft.name,
+              'description': draft.description,
+              'category': draft.category?.name,
+              'categories': draft.categories.map((c) => c.name).toList(),
+              'narrative': draft.narrative,
+              'entryConditions': draft.entryConditions
+                  .map((rule) => <String, dynamic>{
+                        'text': rule.text,
+                        'enabled': rule.enabled,
+                      })
+                  .toList(),
+              'takeProfitRule': draft.takeProfitRule,
+              'stopLossRule': draft.stopLossRule,
+              'invalidationRule': draft.invalidationRule,
+              'disciplineRules': draft.disciplineRules
+                  .map((rule) => <String, dynamic>{
+                        'text': rule.text,
+                        'enabled': rule.enabled,
+                      })
+                  .toList(),
+              'sessions': draft.sessions,
+              'intervals': draft.intervals,
+            },
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Exports the trades imported from the MT5 HTML report to a Trading
+  /// Journal workbook. Nest builds the .xlsx and the browser saves it.
+  Future<void> _exportXlsx() async {
+    try {
+      if (!_hasImported || _trades.isEmpty) {
+        throw const FormatException(
+          'Import an MT5 HTML report first, then export it to XLSX.',
+        );
+      }
+
+      final stamp =
+          DateTime.now().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
+      final fileName = 'TraderLog_Export_$stamp.xlsx';
+
+      // Merge the broker facts with the journal the trader wrote in Calendar /
+      // Trade Detail: strategy, session, rules followed and execution notes.
+      final enrichedTrades = _trades.map((trade) {
+        final data = trade.toJson();
+        final journal = widget.journals[trade.id] ??
+            widget.journals['trd_${trade.ticket}'];
+        if (journal != null) {
+          final strategyNames = <String>[
+            if (journal.strategyName != null && journal.strategyName!.isNotEmpty)
+              journal.strategyName!,
+            ...?journal.strategyNames,
+          ];
+          data['strategy'] =
+              strategyNames.isEmpty ? null : strategyNames.join(', ');
+          data['strategyIds'] = journal.strategyIds
+                  ?.whereType<String>()
+                  .toList(growable: false) ??
+              const <String>[];
+          data['session'] = journal.tradingSession;
+          data['screenshot'] = journal.screenshots;
+          data['notes'] = [
+            if (journal.plan != null && journal.plan!.isNotEmpty)
+              'Plan: ${journal.plan}',
+            if (journal.entryReason != null && journal.entryReason!.isNotEmpty)
+              'Entry: ${journal.entryReason}',
+            if (journal.sessionNarrative != null &&
+                journal.sessionNarrative!.isNotEmpty)
+              'Session: ${journal.sessionNarrative}',
+            if (journal.executionNotes != null &&
+                journal.executionNotes!.isNotEmpty)
+              'Execution: ${journal.executionNotes}',
+            if (journal.rulesFollowed != null &&
+                journal.rulesFollowed!.isNotEmpty)
+              'Rules followed: ${journal.rulesFollowed!.join('; ')}',
+            if (journal.lessonLearned != null &&
+                journal.lessonLearned!.isNotEmpty)
+              'Lesson: ${journal.lessonLearned}',
+          ].join(' · ');
+        }
+        return data;
+      }).toList(growable: false);
+
+      // Saved strategies are fetched from Postgres so every rule the trader
+      // created is written into the workbook, even without a local journal.
+      final savedStrategies = await _fetchExportStrategies();
+
+      final payload = <String, dynamic>{
+        'trades': enrichedTrades,
+        'accountName': _accountName,
+        'currency': _accountCurrency,
+        'initialDeposit': _initialDeposit,
+        'finalBalance': _extractedFinalBalance ?? _currentBalance,
+        'dailyNotes': widget.dayNotes,
+        'strategies': savedStrategies,
+      };
+
+      final response = await http
+          .post(
+            Uri.parse(workbookExportEndpoint),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 60));
+
+      if (response.statusCode != 200) {
+        var message = utf8.decode(response.bodyBytes, allowMalformed: true);
+        try {
+          final decoded = jsonDecode(message);
+          if (decoded is Map<String, dynamic>) {
+            final apiMessage = decoded['message'];
+            if (apiMessage is List) {
+              message = apiMessage.join(', ');
+            } else if (apiMessage != null) {
+              message = apiMessage.toString();
+            }
+          }
+        } catch (_) {
+          // Keep the raw response body when it is not JSON.
+        }
+        throw FormatException(message);
+      }
+
+      await saveXlsxBytes(response.bodyBytes, fileName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Exported ${_trades.length} trades to $fileName',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = error
+          .toString()
+          .replaceFirst('FormatException: ', '')
+          .replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('XLSX export failed: $message')),
+      );
+    }
+  }
+
   // --- Currency Helpers ---
   bool get _isCentAccount => _accountCurrency.toUpperCase() == 'USC';
 
@@ -526,7 +699,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF101310),
-      appBar: HomeAppBar(accountName: _accountName, onUploadTap: _uploadFile),
+      appBar: HomeAppBar(
+        accountName: _accountName,
+        onUploadTap: _uploadFile,
+        onExportXlsxTap: _exportXlsx,
+      ),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -546,35 +723,68 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 2. Manual Upload Action Banner
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _uploadFile,
-                      icon: const Icon(
-                        Icons.upload_file_rounded,
-                        size: 18,
-                        color: Color(0xFFB7F7C4),
-                      ),
-                      label: Text(
-                        _hasImported
-                            ? 'Upload Another MT5 HTML Report'
-                            : 'Upload MT5 HTML Report (Manual PoC)',
-                        style: const TextStyle(
-                          color: Color(0xFFB7F7C4),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                  // 2. Import MT5 HTML report + export imported trades to XLSX
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _uploadFile,
+                          icon: const Icon(
+                            Icons.upload_file_rounded,
+                            size: 18,
+                            color: Color(0xFFB7F7C4),
+                          ),
+                          label: const Text(
+                            'Import MT5 HTML Report',
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            style: TextStyle(
+                              color: Color(0xFFB7F7C4),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1A1F1B),
+                            side: const BorderSide(color: Color(0xFF303832)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1A1F1B),
-                        side: const BorderSide(color: Color(0xFF303832)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _exportXlsx,
+                          icon: const Icon(
+                            Icons.file_download_outlined,
+                            size: 18,
+                            color: Color(0xFFB7F7C4),
+                          ),
+                          label: const Text(
+                            'Export to XLSX',
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            style: TextStyle(
+                              color: Color(0xFFB7F7C4),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1A1F1B),
+                            side: const BorderSide(color: Color(0xFF303832)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: 16),
 

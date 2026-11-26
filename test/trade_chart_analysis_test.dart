@@ -1,10 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:trader_log/model/trade.model.dart';
-import 'package:trader_log/services/trade_chart_analysis.dart';
+import 'package:trader_log/services/trade_chart_message.dart';
 import 'package:trader_log/services/trade_chart_markers.dart';
+import 'package:trader_log/services/market_candle.dart';
+import 'package:trader_log/services/mt5_candle_service.dart';
 import 'package:trader_log/services/trade_chart_window.dart';
 import 'package:trader_log/services/trade_level_analysis.dart';
-import 'package:trader_log/services/yahoo_candle_service.dart';
 
 Trade _trade({
   required TradeType type,
@@ -238,13 +239,15 @@ void main() {
         close: base.add(const Duration(minutes: 5)),
       );
       await expectLater(
-        YahooCandleService().loadForTrade(trade, interval: '2h'),
+        const Mt5CandleService().loadForTrade(trade, interval: '2h'),
         throwsA(
-          isA<CandleDataException>().having(
-            (error) => error.message,
-            'message',
-            contains('Unsupported timeframe'),
-          ),
+          isA<Mt5CandleException>()
+              .having((error) => error.code, 'code', 'unsupported_timeframe')
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Unsupported timeframe'),
+              ),
         ),
       );
     });

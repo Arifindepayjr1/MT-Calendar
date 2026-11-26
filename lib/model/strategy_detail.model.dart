@@ -1,3 +1,4 @@
+import 'strategy_draft.model.dart';
 import 'strategy_playbook.model.dart';
 
 /// Filter tabs shown above the assigned MT5 ticket log.
@@ -57,9 +58,13 @@ class StrategyTradeRecord {
 
 /// Presentation data for the strategy deep-dive screen.
 class StrategyDetail {
-  final StrategyPlaybook playbook;
+  /// Null for a user-created setup: it has no shared catalogue row.
+  final StrategyPlaybook? playbook;
   final String statusLabel;
   final String syncLabel;
+
+  /// The user's own strategy notes; backend playbooks use the shared rulebook.
+  final String? summary;
   final int grade;
   final String macroWindow;
   final double netReturn;
@@ -73,10 +78,15 @@ class StrategyDetail {
   final List<StrategyRule> riskRules;
   final List<StrategyTradeRecord> trades;
 
+  /// True when MT5-backed performance numbers are available. User-created
+  /// setups keep the same detail layout but show honest empty stats.
+  final bool hasTelemetry;
+
   const StrategyDetail({
     required this.playbook,
     required this.statusLabel,
     required this.syncLabel,
+    this.summary,
     required this.grade,
     required this.macroWindow,
     required this.netReturn,
@@ -89,7 +99,59 @@ class StrategyDetail {
     required this.entryRules,
     required this.riskRules,
     required this.trades,
+    required this.hasTelemetry,
   });
+
+  /// Builds the exact same detail view for a setup the user created. Nothing
+  /// is invented: no trades means zero win rate/net return and `—` for ratios
+  /// that need executions.
+  factory StrategyDetail.fromDraft(StrategyDraft draft) {
+    final sessions = draft.sessions
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+
+    final narrative = draft.narrative?.trim() ?? '';
+    final description = draft.description?.trim() ?? '';
+    final summary =
+        narrative.isNotEmpty ? narrative : (description.isNotEmpty ? description : null);
+
+    final riskRules = <StrategyRule>[];
+    void addRisk(String? value) {
+      final text = value?.trim() ?? '';
+      if (text.isNotEmpty) {
+        riskRules.add(StrategyRule(text: text, verified: true));
+      }
+    }
+
+    addRisk(draft.takeProfitRule);
+    addRisk(draft.stopLossRule);
+    addRisk(draft.invalidationRule);
+
+    return StrategyDetail(
+      playbook: null,
+      statusLabel: 'Your Setup',
+      syncLabel: 'Saved to your account',
+      summary: summary,
+      grade: 0,
+      macroWindow:
+          sessions.isEmpty ? 'No sessions selected' : sessions.join(' / '),
+      netReturn: 0,
+      netReturnPercent: 0,
+      winRate: 0,
+      profitFactor: 0,
+      avgRMultiple: 0,
+      maxDrawdown: 0,
+      adherence: 0,
+      entryRules: [
+        for (final condition in draft.entryConditions)
+          StrategyRule(text: condition.text, verified: condition.enabled),
+      ],
+      riskRules: riskRules,
+      trades: const <StrategyTradeRecord>[],
+      hasTelemetry: false,
+    );
+  }
 
   factory StrategyDetail.fromJson(Map<String, dynamic> json) {
     List<T> decodeList<T>(
@@ -101,7 +163,9 @@ class StrategyDetail {
             .toList();
 
     return StrategyDetail(
-      playbook: StrategyPlaybook.fromJson(json['playbook'] as Map<String, dynamic>),
+      playbook: json['playbook'] == null
+          ? null
+          : StrategyPlaybook.fromJson(json['playbook'] as Map<String, dynamic>),
       statusLabel: json['statusLabel'] as String,
       syncLabel: json['syncLabel'] as String,
       grade: (json['grade'] as num).toInt(),
@@ -116,6 +180,7 @@ class StrategyDetail {
       entryRules: decodeList('entryRules', StrategyRule.fromJson),
       riskRules: decodeList('riskRules', StrategyRule.fromJson),
       trades: decodeList('trades', StrategyTradeRecord.fromJson),
+      hasTelemetry: true,
     );
   }
 

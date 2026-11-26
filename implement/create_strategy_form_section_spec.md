@@ -58,7 +58,10 @@ A sticky `bottomNavigationBar` holds `Cancel` and the full-width mint
   enum; its `name` is sent to the backend as the category string.
 
 Every edit updates `_draftStatus` to `Draft auto-saved`. On a successful POST the
-status becomes `Saved to backend`; on failure it becomes `Save failed`.
+form pops with `true`, returning the user to the Strategies tab; that tab waits
+for the result, reloads the user's drafts, and shows the new card at the top of
+**All Setups** with a "Your Setup" badge and a single confirmation snackbar.
+On failure the form stays open and `_draftStatus` becomes `Save failed`.
 
 ## 5. Request payload
 

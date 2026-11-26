@@ -143,6 +143,29 @@ class _OtpVerificationStepState extends State<OtpVerificationStep> {
               _header(),
               const SizedBox(height: 20),
               _destinationChip(),
+              if (widget.devCode != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  key: const ValueKey('otp_dev_code'),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: LedgerColors.mint.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(
+                      color: LedgerColors.mint.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Text(
+                    'Local dev code: ${widget.devCode}',
+                    style: const TextStyle(
+                      color: LedgerColors.mint,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               _pinRow(),
               if (_pasteCandidate != null) ...[

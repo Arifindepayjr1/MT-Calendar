@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:trader_log/model/journal.model.dart';
 import 'package:trader_log/model/trade.model.dart';
 import 'package:trader_log/screens/trade_detail.screen.dart';
+import 'package:trader_log/services/strategy_api_service.dart';
 
 const bg = Color(0xFF101310),
     surface = Color(0xFF1A1F1B),
@@ -22,6 +24,12 @@ class CalendarScreen extends StatefulWidget {
   final void Function(String, String) onDayNoteChanged;
   final void Function(String, Journal) onJournalChanged;
   final VoidCallback onGoHome;
+
+  /// Injectable only for tests that verify the MT5 request path.
+  final http.Client? client;
+
+  /// Supplies the signed-in user's saved setups to Trade Detail.
+  final StrategyApiService strategyApi;
   const CalendarScreen({
     super.key,
     required this.trades,
@@ -34,6 +42,8 @@ class CalendarScreen extends StatefulWidget {
     required this.onDayNoteChanged,
     required this.onJournalChanged,
     required this.onGoHome,
+    this.client,
+    this.strategyApi = const StrategyApiService(),
   });
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
@@ -945,6 +955,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
           currency: widget.currency,
           accountLabel: widget.brokerAndNumber,
           initialJournal: widget.journals[trade.id],
+          client: widget.client,
+          strategyApi: widget.strategyApi,
           onJournalSaved: (journal) =>
               widget.onJournalChanged(trade.id, journal),
         ),

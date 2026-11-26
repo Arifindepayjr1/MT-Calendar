@@ -40,6 +40,8 @@ class _CheckItem {
 class CreateStrategyScreen extends StatefulWidget {
   final StrategyApiService api;
 
+  /// Pops with `true` after a successful save. The Strategies tab waits for
+  /// that result, reloads drafts and returns the user to the refreshed list.
   const CreateStrategyScreen({
     super.key,
     this.api = const StrategyApiService(),
@@ -170,15 +172,15 @@ class _CreateStrategyScreenState extends State<CreateStrategyScreen> {
     };
 
     try {
-      final result = await widget.api.createDraft(payload);
+      await widget.api.createDraft(payload);
       if (!mounted) return;
       setState(() {
         _saving = false;
         _draftStatus = 'Saved to backend';
       });
-      _snack(
-        'Draft "$name" saved to backend (${result['id'] ?? 'draft'}).',
-      );
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(true);
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {

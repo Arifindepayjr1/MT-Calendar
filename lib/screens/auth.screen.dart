@@ -16,7 +16,6 @@ class AuthScreen extends StatefulWidget {
   final AuthStore store;
   final AuthStep initialStep;
   final VoidCallback? onCompleted;
-  final VoidCallback? onGuest;
 
   const AuthScreen({
     super.key,
@@ -24,7 +23,6 @@ class AuthScreen extends StatefulWidget {
     required this.store,
     this.initialStep = AuthStep.login,
     this.onCompleted,
-    this.onGuest,
   });
 
   @override
@@ -51,15 +49,13 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
+  /// Back only moves within the authentication suite. The root login step has
+  /// no back affordance, so it cannot return to the main navigation.
   void _back() {
     if (_step == AuthStep.otp) {
       _goTo(AuthStep.createAccount);
     } else if (_step == AuthStep.createAccount) {
       _goTo(AuthStep.login);
-    } else if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop(false);
-    } else if (widget.onGuest != null) {
-      widget.onGuest!();
     }
   }
 
@@ -229,7 +225,7 @@ class _AuthScreenState extends State<AuthScreen> {
       appBar: LedgerWidgets.appBar(
         title: title,
         mark: mark,
-        onBack: _back,
+        onBack: _step == AuthStep.login ? null : _back,
       ),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 180),
@@ -242,7 +238,6 @@ class _AuthScreenState extends State<AuthScreen> {
               onSubmit: _signIn,
               onCreateAccount: () => _goTo(AuthStep.createAccount),
               onForgotCipher: _forgotCipher,
-              onGuest: widget.onGuest,
             ),
           AuthStep.createAccount => CreateAccountStep(
               key: const ValueKey('create'),

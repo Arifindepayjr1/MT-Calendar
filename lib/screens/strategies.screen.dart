@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:trader_log/model/strategy.model.dart';
+import 'package:trader_log/model/strategy_draft.model.dart';
 import 'package:trader_log/model/strategy_playbook.model.dart';
 import 'package:trader_log/screens/create_strategy.screen.dart';
 import 'package:trader_log/screens/strategy_detail.screen.dart';
@@ -13,6 +15,31 @@ const _muted = Color(0xFF858D86);
 const _border = Color(0xFF303832);
 const _ink = Color(0xFFE8ECE8);
 const String _dollar = r'$';
+
+/// One card in the All Setups list. Saved user drafts are first-class setups,
+/// alongside the shared backend playbooks.
+class _SetupEntry {
+  final StrategyPlaybook? playbook;
+  final StrategyDraft? draft;
+
+  const _SetupEntry._(this.playbook, this.draft);
+
+  factory _SetupEntry.playbook(StrategyPlaybook playbook) =>
+      _SetupEntry._(playbook, null);
+
+  factory _SetupEntry.draft(StrategyDraft draft) => _SetupEntry._(null, draft);
+
+  String get name => playbook?.name ?? draft!.name;
+
+  StrategyCategory get category =>
+      playbook?.category ?? draft?.category ?? StrategyCategory.other;
+
+  bool matches(PlaybookFilter filter) => switch (filter) {
+        PlaybookFilter.all => true,
+        PlaybookFilter.ictSmc => category == StrategyCategory.ictSmc,
+        PlaybookFilter.priceAction => category == StrategyCategory.priceAction,
+      };
+}
 
 /// Mobile playbook overview for the persistent Strategies tab.
 class StrategiesScreen extends StatefulWidget {
@@ -31,15 +58,24 @@ class StrategiesScreen extends StatefulWidget {
 
 class _StrategiesScreenState extends State<StrategiesScreen> {
   StrategyOverview? _overview;
+  List<StrategyDraft> _drafts = const <StrategyDraft>[];
   bool _loading = true;
   String? _error;
+  String? _draftError;
   final Set<String> _favorites = <String>{};
 
   Iterable<StrategyPlaybook> get _playbooks =>
       _overview?.playbooks ?? const <StrategyPlaybook>[];
 
-  Iterable<StrategyPlaybook> get _visible =>
-      _playbooks.where((playbook) => playbook.matches(_filter));
+  /// User setups come first so a freshly saved strategy is immediately visible
+  /// at the top of All Setups. The backend already returns drafts newest-first.
+  Iterable<_SetupEntry> get _allSetups => [
+        for (final draft in _drafts) _SetupEntry.draft(draft),
+        for (final playbook in _playbooks) _SetupEntry.playbook(playbook),
+      ];
+
+  Iterable<_SetupEntry> get _visible =>
+      _allSetups.where((entry) => entry.matches(_filter));
 
   PlaybookFilter _filter = PlaybookFilter.all;
   bool _showEmptyPreview = false;
@@ -50,30 +86,58 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant StrategiesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Signing in or out replaces the token provider. Reload drafts so a user
+    // sees their own saved strategies immediately without restarting the app.
+    if (oldWidget.api.hasToken != widget.api.hasToken) _load();
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
+      _draftError = null;
     });
+
+    StrategyOverview? overview;
     try {
-      final overview = await widget.api.fetchOverview();
-      setState(() {
-        _overview = overview;
-        _favorites
-          ..clear()
-          ..addAll(
-            overview.playbooks
-                .where((playbook) => playbook.favorite)
-                .map((playbook) => playbook.id),
-          );
-        _loading = false;
-      });
+      overview = await widget.api.fetchOverview();
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _error = error.toString();
         _loading = false;
       });
+      return;
     }
+
+    List<StrategyDraft> drafts = const <StrategyDraft>[];
+    String? draftError;
+    if (widget.api.hasToken) {
+      try {
+        drafts = await widget.api.fetchDrafts();
+      } catch (error) {
+        drafts = const <StrategyDraft>[];
+        draftError = 'Could not load your saved strategies: $error';
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _overview = overview;
+      _drafts = drafts;
+      _draftError = draftError;
+      _favorites
+        ..clear()
+        ..addAll(
+          overview!.playbooks
+              .where((playbook) => playbook.favorite)
+              .map((playbook) => playbook.id),
+        );
+      _loading = false;
+    });
   }
 
   void _notify(String message) {
@@ -86,12 +150,16 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
     );
   }
 
-  void _openCreate() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _openCreate() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (_) => CreateStrategyScreen(api: widget.api),
       ),
     );
+    if (saved != true || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    _notify('Strategy saved to your account.');
   }
 
   void _openDetails(StrategyPlaybook playbook) {
@@ -102,6 +170,14 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
           playbookName: playbook.name,
           api: widget.api,
         ),
+      ),
+    );
+  }
+
+  void _openSavedSetup(StrategyDraft draft) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StrategyDetailScreen.fromDraft(draft: draft),
       ),
     );
   }
@@ -162,15 +238,53 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
         const SizedBox(height: 16),
         _summary(),
         const SizedBox(height: 16),
+        _draftErrorBanner(),
         _filters(),
         const SizedBox(height: 12),
-        ..._visible.map(_playbookCard),
+        ..._visible.map(_setupCard),
         const SizedBox(height: 4),
         _tipCard(),
         const SizedBox(height: 12),
         _emptyStateAccordion(),
       ],
     );
+  }
+
+  Widget _draftErrorBanner() {
+    final error = _draftError;
+    if (error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _coral.withValues(alpha: 0.4)),
+        ),
+        child: Text(
+          error,
+          style: const TextStyle(color: _coral, fontSize: 10, height: 1.35),
+        ),
+      ),
+    );
+  }
+
+  String _categoryLabel(StrategyCategory? category) => switch (category) {
+        StrategyCategory.ictSmc => 'ICT / SMC',
+        StrategyCategory.priceAction => 'Price Action',
+        StrategyCategory.trendFollowing => 'Trend Following',
+        StrategyCategory.scalping => 'Scalping',
+        StrategyCategory.breakout => 'Breakout',
+        StrategyCategory.other => 'Other',
+        null => 'Other',
+      };
+
+  String _formatSavedAt(DateTime value) {
+    final local = value.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(local.day)}/${two(local.month)} '
+        '${two(local.hour)}:${two(local.minute)}';
   }
 
   Widget _heading() => Row(
@@ -226,8 +340,8 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
       children: [
         Expanded(
           child: _metric(
-            'Playbooks',
-            '${overview.playbooks.length}',
+            'Setups',
+            '${_allSetups.length}',
             'Active Sets',
             _ink,
           ),
@@ -313,11 +427,11 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
 
   Widget _filterChip(PlaybookFilter filter) {
     final active = filter == _filter;
+    final count = _allSetups.where((entry) => entry.matches(filter)).length;
     final label = switch (filter) {
-      PlaybookFilter.all => '● ${filter.label} (${_playbooks.length})',
-      PlaybookFilter.ictSmc =>
-        '${filter.label} (${_playbooks.where((p) => p.matches(filter)).length})',
-      PlaybookFilter.priceAction => filter.label,
+      PlaybookFilter.all => '● ${filter.label} ($count)',
+      PlaybookFilter.ictSmc => '${filter.label} ($count)',
+      PlaybookFilter.priceAction => '${filter.label} ($count)',
     };
     return Material(
       color: active ? _mint : _surface,
@@ -337,6 +451,113 @@ class _StrategiesScreenState extends State<StrategiesScreen> {
               color: active ? _bg : _muted,
               fontSize: 10.5,
               fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _setupCard(_SetupEntry entry) => entry.playbook != null
+      ? _playbookCard(entry.playbook!)
+      : _savedSetupCard(entry.draft!);
+
+  Widget _savedSetupCard(StrategyDraft draft) {
+    final narrative = draft.narrative?.trim() ?? '';
+    final description = draft.description?.trim() ?? '';
+    final summary = narrative.isNotEmpty
+        ? narrative
+        : description.isNotEmpty
+            ? description
+            : 'Your private rulebook saved to this account.';
+    final activeEntries =
+        draft.entryConditions.where((condition) => condition.enabled).length;
+    final activeRules =
+        draft.disciplineRules.where((rule) => rule.enabled).length;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: _surface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _openSavedSetup(draft),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        draft.name,
+                        style: const TextStyle(
+                          color: _ink,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded,
+                        color: _muted, size: 20),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: _mint.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: _mint.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: const Text(
+                        'YOUR SETUP',
+                        style: TextStyle(
+                          color: _mint,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    _tag(_categoryLabel(draft.category)),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                Text(
+                  summary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _muted,
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _stat('Entry rules',
+                        '$activeEntries/${draft.entryConditions.length}'),
+                    _stat('Discipline',
+                        '$activeRules/${draft.disciplineRules.length}'),
+                    _stat('Saved', _formatSavedAt(draft.savedAt)),
+                  ],
+                ),
+              ],
             ),
           ),
         ),

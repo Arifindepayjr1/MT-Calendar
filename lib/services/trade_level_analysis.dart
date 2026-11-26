@@ -1,6 +1,6 @@
 import 'package:trader_log/model/trade.model.dart';
 
-/// A single inspected candle, in seconds (the same unit Yahoo returns).
+/// A single inspected candle, in epoch seconds (the unit MT5 returns).
 class AnalysisCandle {
   final int time;
   final double high;
@@ -67,8 +67,8 @@ TradeLevelAnalysis analyseTradeLevels({
   int? slTime;
   var ambiguous = false;
 
-  // The trade may have no overlapping evidence at all, for example when it is
-  // older than Yahoo's retention for the selected interval.
+  // The trade may have no overlapping evidence at all, for example when the
+  // broker has no history for the requested session/timeframe.
   // A single candle has no measurable step, so treat it as potentially
   // containing the trade instead of assuming the trade is outside the series.
   final step = candles.length > 1 ? last - candles[candles.length - 2].time : 0;

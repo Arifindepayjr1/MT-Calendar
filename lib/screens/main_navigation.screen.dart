@@ -4,6 +4,7 @@ import 'package:trader_log/model/trade.model.dart';
 import 'package:trader_log/screens/calendar.screen.dart';
 import 'package:trader_log/screens/home.screen.dart';
 import 'package:trader_log/screens/settings.screen.dart';
+import 'package:trader_log/screens/statistics.screen.dart';
 import 'package:trader_log/screens/strategies.screen.dart';
 import 'package:trader_log/services/auth_api_service.dart';
 import 'package:trader_log/services/auth_store.dart';
@@ -118,6 +119,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       HomeScreen(
         onImported: _acceptImport,
         importStore: widget.importStore,
+        journals: _journals,
+        dayNotes: _dayNotes,
+        strategyApi: strategyApi,
       ),
       CalendarScreen(
         trades: _activeTrades,
@@ -131,16 +135,20 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onJournalChanged: (id, journal) =>
             setState(() => _journals[id] = journal),
         onGoHome: () => _selectSection(0),
+        strategyApi: strategyApi,
       ),
       StrategiesScreen(
         accountName: _activeAccountName,
         api: strategyApi,
       ),
-      const _PrimarySectionScreen(
-        title: 'Statistics',
-        description:
-            'Explore your win rate, trade breakdowns, and P&L over time.',
-        icon: Icons.bar_chart_rounded,
+      StatisticsScreen(
+        trades: _activeTrades,
+        accountName: _activeAccountName,
+        brokerAndNumber: _activeBrokerAndNumber,
+        currency: _activeCurrency,
+        initialDeposit: _activeInitialDeposit,
+        journals: _journals,
+        strategyApi: strategyApi,
       ),
       SettingsScreen(
         authStore: _authStore,
@@ -269,99 +277,4 @@ class _NavigationDestinationButton extends StatelessWidget {
   }
 }
 
-class _PrimarySectionScreen extends StatelessWidget {
-  final String title;
-  final String description;
-  final IconData icon;
 
-  const _PrimarySectionScreen({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF101310),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF101310),
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        titleSpacing: 20,
-        title: Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFFE8ECE8),
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 68,
-                  height: 68,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1A1F1B),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF303832)),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(icon, size: 32, color: const Color(0xFFB7F7C4)),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xFFE8ECE8),
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  description,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xFF858D86),
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1A1F1B),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF303832)),
-                  ),
-                  child: const Text(
-                    'No data to display yet',
-                    style: TextStyle(
-                      color: Color(0xFF858D86),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

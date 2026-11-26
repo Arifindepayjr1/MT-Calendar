@@ -4,18 +4,18 @@ const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
 const AUTO_PREFIX = 'traderlog:auto:';
 const app = document.getElementById('chart');
 const status = document.getElementById('status');
-const isPrototype = new URLSearchParams(location.search).has('prototype');
 
 let widget;
 let chart;
 let trade = null;
 let timeframe = '1h';
 let currentBars = [];
-let restoring = false;
-let saveTimer;
-let dataSource = 'Yahoo Finance';
-let sourceNote = 'Historical OHLC';
+let dataSource = 'Unconfirmed';
+let sourceNote = 'No data loaded';
 let hasRealVolume = false;
+let sessionStart = null;
+let sessionEnd = null;
+let sessionReason = null;
 
 function notify(type, payload = {}) {
   const message = JSON.stringify({ type, payload });
@@ -23,8 +23,6 @@ function notify(type, payload = {}) {
     window.TraderLogChartBridge.postMessage(message);
   } else if (window.parent !== window) {
     window.parent.postMessage({ source: 'traderlog-chart', message }, location.origin);
-  } else if (isPrototype) {
-    document.documentElement.dataset.lastMessage = type;
   }
 }
 
@@ -40,6 +38,9 @@ function barsFromPayload(candles) {
       // Only pass volume the provider actually supplied. A fabricated 0 would
       // be indistinguishable from a real flat-volume session in the tooltip.
       ...(Number.isFinite(c.volume) ? { volume: c.volume } : {}),
+      ...(Number.isFinite(c.tickVolume) ? { tickVolume: c.tickVolume } : {}),
+      ...(Number.isFinite(c.spread) ? { spread: c.spread } : {}),
+      ...(Number.isFinite(c.realVolume) ? { realVolume: c.realVolume } : {}),
     }));
 }
 
@@ -48,12 +49,11 @@ function formatPrice(value) {
   return value.toFixed(abs >= 100 ? 2 : abs >= 1 ? 4 : 5);
 }
 
-// No automatic horizontalLine/priceLabel drawings are created: the trade is
-// shown only with compact time+price markers. Legacy automatic drawings that
-// may already be stored are filtered out by validUserDrawings().
+// No drawings are created or persisted. The trade is shown only with compact
+// time+price markers at its exact imported execution values.
 
-// Fallback used only by the built-in prototype payload, which has no Dart
-// marker builder. Normal loads send ready-made markers from TradeChartMarkers.
+// Fallback for hosts that do not send ready-made markers. Normal loads send
+// markers from TradeChartMarkers at the trade's exact time and price.
 // TradeCanvas positions these at the exact supplied time and price (including
 // fractional sub-candle times), never at candle OHLC.
 function automaticMarkers(t) {
@@ -104,12 +104,6 @@ function automaticMarkers(t) {
   ];
 }
 
-function validUserDrawings(drawings) {
-  if (!Array.isArray(drawings)) return [];
-  return drawings.filter((drawing) => drawing && typeof drawing.id === 'string' &&
-    !drawing.meta?.traderLogAutomatic && Array.isArray(drawing.anchors));
-}
-
 function baseStatus() {
   return dataSource + ' · ' + sourceNote + ' · ' + timeframe.toUpperCase();
 }
@@ -119,40 +113,41 @@ function applySeries(payload) {
   if (!nextBars.length) { notify('chartError', { message: 'No valid OHLC bars were supplied to the chart.' }); return; }
   const nextTrade = payload.trade;
   if (!nextTrade || typeof nextTrade.id !== 'string') { notify('chartError', { message: 'Trade data is missing or invalid.' }); return; }
-  restoring = true;
   trade = nextTrade;
   timeframe = TIMEFRAMES.includes(payload.timeframe) ? payload.timeframe : '1h';
   currentBars = nextBars;
-  dataSource = payload.dataSource || 'Yahoo Finance';
-  sourceNote = payload.sourceNote || 'Historical OHLC';
+  // The Flutter host only sends dataSource 'MT5' when the NestJS bridge
+  // confirmed `source: "mt5"`. Never label an unconfirmed payload as MT5.
+  dataSource = payload.dataSource === 'MT5' ? 'MT5' : 'Unconfirmed';
+  sourceNote = payload.sourceNote || 'Broker history';
+  sessionStart = Number.isFinite(payload.sessionStart) ? payload.sessionStart : null;
+  sessionEnd = Number.isFinite(payload.sessionEnd) ? payload.sessionEnd : null;
+  sessionReason = typeof payload.sessionReason === 'string' ? payload.sessionReason : null;
   hasRealVolume = currentBars.some((bar) => Number.isFinite(bar.volume));
-  try {
-    widget.setData(currentBars);
-    chart.setVolumeVisible(hasRealVolume);
-    // Only user drawings are persistent. Automatic levels used to be stored
-    // as locked drawings; legacy copies are dropped by validUserDrawings().
-    chart.setDrawings(validUserDrawings(payload.drawings));
-    const markers = Array.isArray(payload.markers)
-      ? payload.markers
-      : automaticMarkers(trade);
-    chart.setSignalMarkers(
-      markers.filter((marker) => marker && Number.isFinite(marker.time) &&
-        Number.isFinite(marker.price)),
-    );
-  } finally { restoring = false; }
+  widget.setData(currentBars);
+  chart.setVolumeVisible(hasRealVolume);
+  const markers = Array.isArray(payload.markers)
+    ? payload.markers
+    : automaticMarkers(trade);
+  chart.setSignalMarkers(
+    markers.filter((marker) => marker && Number.isFinite(marker.time) &&
+      Number.isFinite(marker.price)),
+  );
   status.textContent = baseStatus() + ' · historical';
-  if (isPrototype) document.documentElement.dataset.prototypeBars = String(currentBars.length);
   notify('seriesLoaded', {
     timeframe,
     bars: currentBars.length,
     source: dataSource,
     hasVolume: hasRealVolume,
+    sessionStart,
+    sessionEnd,
+    sessionReason,
   });
 }
 
-// Zoom to the actual trade window. The app already fetched the correct
-// historical time range, so this only changes the visible span — no replay and
-// no data slicing.
+// Zoom to the full broker session supplied by MT5. The app already fetched
+// every real bar before entry and after exit; this only changes the visible
+// span — no replay and no data slicing.
 function focusTradeWindow() {
   if (!chart || !currentBars.length || !trade) return;
   const barMs = {
@@ -162,53 +157,13 @@ function focusTradeWindow() {
   const entry = Date.parse(trade.openTime) || currentBars[0].time;
   const close = Date.parse(trade.closeTime) || entry;
   const last = currentBars[currentBars.length - 1].time;
+  const from = sessionStart ?? entry - 4 * barMs;
+  const to = sessionEnd ?? Math.max(close, last) + 4 * barMs;
   try {
-    chart.setVisibleRange(entry - 4 * barMs, Math.max(close, last) + 4 * barMs);
+    chart.setVisibleRange(from, to);
   } catch {
     chart.fitContent();
   }
-}
-
-function scheduleAnalysisSave() {
-  if (restoring || isPrototype || !trade) return;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    const drawings = chart.getDrawings().filter((drawing) => !drawing.meta?.traderLogAutomatic);
-    notify('analysisChanged', {
-      tradeId: trade.id, symbol: trade.symbol, timeframe, drawings,
-      settings: { theme: 'dark', ui: 'terminal', timeframe },
-    });
-  }, 400);
-}
-
-const PRESETS = [
-  ['Bullish FVG', 'rectangle', { color: '#45C48B', fillColor: '#45C48B', fillOpacity: 0.2, lineWidth: 1.5, text: 'Bullish FVG', textColor: '#B7F7C4' }],
-  ['Bearish FVG', 'rectangle', { color: '#FF7C7C', fillColor: '#FF7C7C', fillOpacity: 0.2, lineWidth: 1.5, text: 'Bearish FVG', textColor: '#FFB5B5' }],
-  ['Order Block', 'rectangle', { color: '#4C8DFF', fillColor: '#4C8DFF', fillOpacity: 0.17, lineWidth: 1.5, text: 'Order Block' }],
-  ['Breaker Block', 'rectangle', { color: '#B38CFF', fillColor: '#B38CFF', fillOpacity: 0.17, lineWidth: 1.5, text: 'Breaker Block' }],
-  ['Mitigation Block', 'rectangle', { color: '#F3B65B', fillColor: '#F3B65B', fillOpacity: 0.17, lineWidth: 1.5, text: 'Mitigation Block' }],
-  ['Premium Zone', 'rectangle', { color: '#FF7C7C', fillColor: '#FF7C7C', fillOpacity: 0.13, lineWidth: 1, text: 'Premium' }],
-  ['Discount Zone', 'rectangle', { color: '#45C48B', fillColor: '#45C48B', fillOpacity: 0.13, lineWidth: 1, text: 'Discount' }],
-  ['BSL · Buy-Side Liquidity', 'horizontalLine', { color: '#74A5FF', lineWidth: 1.5, lineStyle: 'dashed', text: 'BSL' }],
-  ['SSL · Sell-Side Liquidity', 'horizontalLine', { color: '#FF9D85', lineWidth: 1.5, lineStyle: 'dashed', text: 'SSL' }],
-  ['BOS', 'horizontalLine', { color: '#F3B65B', lineWidth: 1.5, text: 'BOS' }],
-  ['MSS', 'horizontalLine', { color: '#B38CFF', lineWidth: 1.5, text: 'MSS' }],
-  ['CHOCH', 'horizontalLine', { color: '#64C8D7', lineWidth: 1.5, text: 'CHOCH' }],
-];
-
-function addSmcMenu() {
-  widget.addToolbarDropdown({
-    id: 'traderlog-smc-presets', label: 'ICT / SMC presets', text: 'SMC', icon: 'layers', side: 'left',
-    items: () => PRESETS.map(([label, tool, style]) => ({
-      label,
-      onSelect: () => {
-        chart.setDrawingStyle(style);
-        chart.setDrawingTool(tool);
-        chart.setStayInDrawingMode(true);
-        notify('presetSelected', { label, tool });
-      },
-    })),
-  });
 }
 
 function onReady(readyChart, readyWidget) {
@@ -219,12 +174,6 @@ function onReady(readyChart, readyWidget) {
     showConfidence: false,
     arrowSize: 10,
   });
-  addSmcMenu();
-  chart.on('drawingCreate', (event) => { notify('drawingCreated', { id: event.data?.id, tool: event.data?.type }); scheduleAnalysisSave(); });
-  chart.on('drawingUpdate', (event) => { notify('drawingUpdated', { id: event.data?.id }); scheduleAnalysisSave(); });
-  chart.on('drawingRemove', (event) => { notify('drawingDeleted', { id: event.data?.id }); scheduleAnalysisSave(); });
-  chart.on('drawingSelect', (event) => notify('drawingSelected', event.data || {}));
-  chart.on('historyChange', (event) => notify('undoRedoChanged', event.data || {}));
   chart.on('barClick', (event) => notify('barSelected', event.data || {}));
   chart.on('crosshairMove', (event) => {
     const data = event.data || {};
@@ -239,15 +188,13 @@ function onReady(readyChart, readyWidget) {
       low: bar?.low ?? null,
       close: bar?.close ?? null,
       volume: hasRealVolume && Number.isFinite(bar?.volume) ? bar.volume : null,
+      tickVolume: Number.isFinite(bar?.tickVolume) ? bar.tickVolume : null,
+      spread: Number.isFinite(bar?.spread) ? bar.spread : null,
+      realVolume: Number.isFinite(bar?.realVolume) ? bar.realVolume : null,
     });
   });
   chart.on('crosshairLeave', () => notify('crosshairMoved', { time: null }));
-  chart.on('stateChange', scheduleAnalysisSave);
   notify('chartReady', { version: '2.16.0' });
-  if (isPrototype) {
-    document.getElementById('prototype').style.display = 'block';
-    applySeries(makePrototypeData());
-  }
 }
 
 function dispatch(raw) {
@@ -258,15 +205,7 @@ function dispatch(raw) {
   }
   if (!message || typeof message.type !== 'string') return;
   if (message.type === 'loadSeries') applySeries(message.payload || {});
-  else if (message.type === 'restoreAnalysis') {
-    restoring = true;
-    try {
-      chart.setDrawings(validUserDrawings(message.payload?.drawings));
-    } finally { restoring = false; }
-  } else if (message.type === 'captureAnalysis') {
-    const drawings = chart.getDrawings().filter((drawing) => !drawing.meta?.traderLogAutomatic);
-    notify('analysisSnapshot', { timeframe, drawings, settings: { theme: 'dark', ui: 'terminal', timeframe } });
-  } else if (message.type === 'focusTrade') focusTradeWindow();
+  else if (message.type === 'focusTrade' || message.type === 'fitSession') focusTradeWindow();
   else if (message.type === 'fitAll') chart?.fitContent();
   else if (message.type === 'toggleCrosshair') {
     if (!chart) return;
@@ -286,12 +225,10 @@ window.addEventListener('unhandledrejection', (event) => notify('chartError', { 
 
 widget = new ChartWidget(app, {
   symbol: 'TraderLog', timeframe, theme: 'dark', ui: 'terminal', locale: 'en',
-  toolbar: true, drawingTools: true, trading: false, watchlist: false,
+  toolbar: false, drawingTools: false, trading: false, watchlist: false,
   symbolInfo: false, alerts: false, layouts: false, statusBar: true,
-  rangeBar: true, fullscreen: false, objectTree: true,
+  rangeBar: false, fullscreen: false, objectTree: false,
   timeframes: TIMEFRAMES, customTimeframes: false, resampleTimeframes: false,
-  // This is a historical trade view. Hide the library's replay capability,
-  // replay toolbar button and duplicate full-screen button entirely.
   features: {
     replay: false,
     'toolbar.replay': false,
@@ -299,38 +236,15 @@ widget = new ChartWidget(app, {
     'toolbar.fullscreen': false,
   },
   chartOptions: {
-    chartType: 'candlestick', renderer: isPrototype ? 'canvas' : 'auto', autoScale: true, pageScroll: false,
+    chartType: 'candlestick', renderer: 'auto', autoScale: true, pageScroll: false,
     features: {
-      drawings: true, drawingUndoRedo: true, trading: false,
+      drawings: false, drawingUndoRedo: false, trading: false,
       panning: true, zooming: true, crosshair: true,
       // Flutter renders the tooltip so it can omit provider-missing volume.
       crosshairTooltip: false,
-      saveLoad: true,
+      saveLoad: false,
     },
   },
   onReady,
-  onTimeframeChange: (nextTimeframe) => {
-    if (!TIMEFRAMES.includes(nextTimeframe)) return;
-    timeframe = nextTimeframe;
-    if (!restoring && !isPrototype) notify('timeframeChanged', { timeframe });
-  },
 });
 
-function makePrototypeData() {
-  const candles = [];
-  const end = Date.now() - 60 * 60 * 1000;
-  let price = 2350;
-  for (let i = 0; i < 180; i++) {
-    const open = price;
-    const change = Math.sin(i / 6) * 1.8 + Math.cos(i / 11) * 1.1;
-    const close = open + change;
-    candles.push({ time: Math.floor((end - (180 - i) * 3600 * 1000) / 1000), open, close, high: Math.max(open, close) + 1.2, low: Math.min(open, close) - 1.1, volume: 100 + i });
-    price = close;
-  }
-  const openTime = candles[110].time * 1000;
-  const closeTime = candles[145].time * 1000;
-  return {
-    timeframe: '1h', dataSource: 'Prototype OHLC', sourceNote: 'synthetic test data', candles, drawings: [],
-    trade: { id: 'prototype-trade', symbol: 'XAUUSD', type: 'buy', volume: 0.1, openPrice: candles[110].open, closePrice: candles[145].close, stoploss: candles[105].low, takeProfit: candles[160].high, openTime: new Date(openTime).toISOString(), closeTime: new Date(closeTime).toISOString(), netProfit: 10 },
-  };
-}

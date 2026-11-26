@@ -54,8 +54,10 @@ Verifying calls `POST /api/auth/verify-code`, saves the JWT and lands on the
 TradeLog Home tab. Resend reissues the code and restarts the timer.
 
 `lib/screens/auth.screen.dart` coordinates the three steps and their shared
-loading/error state. `main()` shows the suite first (with "Continue as guest"),
-and Settings can reopen it at any time.
+loading/error state. `main()` shows the suite first; authentication is required,
+so the root login step has no guest bypass and no back route to Home. Back is
+only shown on Create Account / OTP to move between auth steps. Settings can
+reopen the suite at any time.
 
 ## Imported report persistence
 
@@ -78,10 +80,12 @@ sign out → same report.
 
 `backend/src/auth/auth-code.entity.ts` stores a bcrypt-hashed code, the hashed
 passphrase, name, framework, expiry and attempt counter in `auth_codes`.
-`/auth/request-code` replaces any previous code for the email;
-`/auth/verify-code` validates, creates the user with the stored hash, deletes
-the code and returns the normal JWT response. `AUTH_DEV_CODE=true` echoes the
-code for local testing only.
+`/auth/request-code` replaces any previous code for the email and, when
+`SMTP_APP_PASSWORD` is configured, emails the 6-digit code with Nodemailer via
+Gmail to that same address; `/auth/verify-code` validates, creates the user with
+the stored hash, deletes the code and returns the normal JWT response. Without
+SMTP configured, `AUTH_DEV_CODE=true` echoes the code in `devCode` as a local
+fallback and the OTP screen shows a "Local dev code" hint.
 
 ## Verification
 

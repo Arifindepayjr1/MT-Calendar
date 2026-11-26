@@ -214,6 +214,50 @@ Map<String, dynamic> strategyDetailJson() => {
       ],
     };
 
+Map<String, dynamic> _draft({
+  required String id,
+  required String name,
+  required String savedAt,
+  required int draftCount,
+}) =>
+    {
+      'id': id,
+      'name': name,
+      'savedAt': savedAt,
+      'draftCount': draftCount,
+      'description': 'A private rulebook saved to this user account.',
+      'category': 'ictSmc',
+      'categories': ['ictSmc'],
+      'narrative': 'Wait for the sweep, then enter on displacement.',
+      'entryConditions': [
+        {'text': 'Mark the macro window on 15M', 'enabled': true},
+        {'text': 'Confirm a liquidity sweep', 'enabled': true},
+      ],
+      'takeProfitRule': 'TP1 at 2R',
+      'stopLossRule': 'Stop beyond the sweep extreme',
+      'invalidationRule': 'Invalidate on reclaim',
+      'disciplineRules': [
+        {'text': 'No trading during news spike', 'enabled': false},
+      ],
+      'sessions': ['London'],
+      'intervals': ['15M'],
+    };
+
+List<Map<String, dynamic>> strategyDraftsJson() => [
+      _draft(
+        id: 'draft_1',
+        name: 'London Sweep',
+        savedAt: '2026-01-02T09:30:00.000Z',
+        draftCount: 2,
+      ),
+      _draft(
+        id: 'draft_2',
+        name: 'NY Opening Drive',
+        savedAt: '2026-01-03T14:15:00.000Z',
+        draftCount: 1,
+      ),
+    ];
+
 http.Response _jsonResponse(Object body) => http.Response(
       jsonEncode(body),
       200,
@@ -225,8 +269,12 @@ http.Response _jsonResponse(Object body) => http.Response(
 StrategyApiService fakeStrategyApi({
   List<http.Request>? requests,
   Map<String, dynamic>? draftResponse,
+  String? token,
+  List<Map<String, dynamic>>? drafts,
 }) {
+  final savedDrafts = drafts ?? strategyDraftsJson();
   return StrategyApiService(
+    tokenProvider: token == null ? null : () => token,
     client: MockClient((request) async {
       requests?.add(request);
       final path = request.url.path;
@@ -234,16 +282,35 @@ StrategyApiService fakeStrategyApi({
       if (request.method == 'GET' && path.endsWith('/api/strategies')) {
         return _jsonResponse(strategyOverviewJson());
       }
+      if (request.method == 'GET' &&
+          path.endsWith('/api/strategies/drafts')) {
+        return _jsonResponse(savedDrafts);
+      }
       if (request.method == 'GET' && path.contains('/api/strategies/')) {
         return _jsonResponse(strategyDetailJson());
       }
       if (request.method == 'POST' && path.endsWith('/api/strategies')) {
-        return _jsonResponse(draftResponse ?? {
-          'id': 'draft_1',
-          'name': 'Draft',
-          'savedAt': '2026-01-01T00:00:00.000Z',
-          'draftCount': 1,
-        });
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final created = <String, dynamic>{
+          'id': draftResponse?['id'] ?? 'draft_${savedDrafts.length + 1}',
+          'name': body['name'] ?? 'Draft',
+          'savedAt': draftResponse?['savedAt'] ??
+              DateTime.now().toUtc().toIso8601String(),
+          'draftCount': savedDrafts.length + 1,
+          'description': body['description'],
+          'category': body['category'],
+          'categories': body['categories'] ?? const <String>[],
+          'narrative': body['narrative'],
+          'entryConditions': body['entryConditions'] ?? const <dynamic>[],
+          'takeProfitRule': body['takeProfitRule'],
+          'stopLossRule': body['stopLossRule'],
+          'invalidationRule': body['invalidationRule'],
+          'disciplineRules': body['disciplineRules'] ?? const <dynamic>[],
+          'sessions': body['sessions'] ?? const <String>[],
+          'intervals': body['intervals'] ?? const <String>[],
+        };
+        savedDrafts.insert(0, created);
+        return _jsonResponse(draftResponse ?? created);
       }
 
       return http.Response(

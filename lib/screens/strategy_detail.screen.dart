@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:trader_log/model/strategy_draft.model.dart';
 import 'package:trader_log/model/strategy_detail.model.dart';
 import 'package:trader_log/services/strategy_api_service.dart';
 
@@ -12,17 +13,26 @@ const _ink = Color(0xFFE8ECE8);
 const String _dollar = r'$';
 
 /// Deep-dive rulebook, telemetry and MT5 ticket log for one playbook.
+///
+/// A user-created [draft] uses this exact same layout. With no assigned trades
+/// it shows honest empty stats instead of a different screen.
 class StrategyDetailScreen extends StatefulWidget {
-  final String strategyId;
+  final String? strategyId;
   final String playbookName;
+  final StrategyDraft? draft;
   final StrategyApiService api;
 
   const StrategyDetailScreen({
     super.key,
-    required this.strategyId,
+    this.strategyId,
     required this.playbookName,
+    this.draft,
     this.api = const StrategyApiService(),
   });
+
+  factory StrategyDetailScreen.fromDraft({required StrategyDraft draft}) {
+    return StrategyDetailScreen(playbookName: draft.name, draft: draft);
+  }
 
   @override
   State<StrategyDetailScreen> createState() => _StrategyDetailScreenState();
@@ -47,8 +57,26 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
       _loading = true;
       _error = null;
     });
+
+    if (widget.draft != null) {
+      setState(() {
+        _detail = StrategyDetail.fromDraft(widget.draft!);
+        _loading = false;
+      });
+      return;
+    }
+
+    final strategyId = widget.strategyId;
+    if (strategyId == null) {
+      setState(() {
+        _error = 'No strategy was selected.';
+        _loading = false;
+      });
+      return;
+    }
+
     try {
-      final detail = await widget.api.fetchDetail(widget.strategyId);
+      final detail = await widget.api.fetchDetail(strategyId);
       setState(() {
         _detail = detail;
         _loading = false;
@@ -229,7 +257,7 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
                     border: Border.all(color: _mint, width: 1.5),
                   ),
                   child: Text(
-                    '${_detail.grade}%',
+                    _detail.hasTelemetry ? '${_detail.grade}%' : '—',
                     style: const TextStyle(
                       color: _mint,
                       fontSize: 15,
@@ -257,9 +285,11 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        'Rulebook adherence tracked from MT5 assignments',
-                        style: TextStyle(color: _muted, fontSize: 8.5),
+                      Text(
+                        _detail.hasTelemetry
+                            ? 'Rulebook adherence tracked from MT5 assignments'
+                            : 'No MT5 assignments yet · saved rulebook only',
+                        style: const TextStyle(color: _muted, fontSize: 8.5),
                       ),
                     ],
                   ),
@@ -330,16 +360,32 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
         crossAxisSpacing: 10,
         childAspectRatio: 2.6,
         children: [
-          _telemetryCard('Win Rate', '${_detail.winRate.toStringAsFixed(1)}%',
-              color: _ink),
-          _telemetryCard('Profit Factor',
-              _detail.profitFactor.toStringAsFixed(2), color: _ink),
           _telemetryCard(
-              'Avg R Multiple', '${_signed(_detail.avgRMultiple, 2)} R',
-              color: _mint),
+            'Win Rate',
+            _detail.hasTelemetry
+                ? '${_detail.winRate.toStringAsFixed(1)}%'
+                : '0.0%',
+            color: _ink,
+          ),
           _telemetryCard(
-              'Max Drawdown', '${_detail.maxDrawdown.toStringAsFixed(1)}%',
-              color: _coral),
+            'Profit Factor',
+            _detail.hasTelemetry ? _detail.profitFactor.toStringAsFixed(2) : '—',
+            color: _ink,
+          ),
+          _telemetryCard(
+            'Avg R Multiple',
+            _detail.hasTelemetry
+                ? '${_signed(_detail.avgRMultiple, 2)} R'
+                : '—',
+            color: _mint,
+          ),
+          _telemetryCard(
+            'Max Drawdown',
+            _detail.hasTelemetry
+                ? '${_detail.maxDrawdown.toStringAsFixed(1)}%'
+                : '—',
+            color: _coral,
+          ),
         ],
       );
 
@@ -410,7 +456,9 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
                             Border.all(color: _mint.withValues(alpha: 0.4)),
                       ),
                       child: Text(
-                        '${_detail.adherence.toStringAsFixed(1)}%',
+                        _detail.hasTelemetry
+                            ? '${_detail.adherence.toStringAsFixed(1)}%'
+                            : '—',
                         style: const TextStyle(
                           color: _mint,
                           fontSize: 10,
@@ -443,6 +491,27 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
                         children: [
                           const Divider(color: _border, height: 1),
                           const SizedBox(height: 12),
+                          if (_detail.summary != null) ...[
+                            const Text(
+                              'STRATEGY NOTES',
+                              style: TextStyle(
+                                color: _mint,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _detail.summary!,
+                              style: const TextStyle(
+                                color: _muted,
+                                fontSize: 10,
+                                height: 1.35,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
                           _ruleGroup('Entry Checklist', _detail.entryRules),
                           const SizedBox(height: 14),
                           _ruleGroup(
@@ -537,10 +606,12 @@ class _StrategyDetailScreenState extends State<StrategyDetailScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: _border),
             ),
-            child: const Text(
-              'No trades in this filter',
+            child: Text(
+              _detail.hasTelemetry
+                  ? 'No trades in this filter'
+                  : 'No MT5 trades assigned to this setup yet',
               textAlign: TextAlign.center,
-              style: TextStyle(color: _muted, fontSize: 11),
+              style: const TextStyle(color: _muted, fontSize: 11),
             ),
           )
         else

@@ -2,9 +2,12 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:trader_log/model/journal.model.dart';
+import 'package:trader_log/model/strategy_draft.model.dart';
 import 'package:trader_log/model/trade.model.dart';
 import 'package:trader_log/seed/strategy.seed.dart';
+import 'package:trader_log/services/strategy_api_service.dart';
 import 'package:trader_log/widgets/trade_candlestick_chart.dart';
 
 const _bg = Color(0xFF101310);
@@ -22,6 +25,12 @@ class TradeDetailScreen extends StatefulWidget {
   final Journal? initialJournal;
   final ValueChanged<Journal> onJournalSaved;
 
+  /// Injectable only for tests that verify the MT5 request path.
+  final http.Client? client;
+
+  /// Used to include the signed-in user's saved setups in the strategy picker.
+  final StrategyApiService strategyApi;
+
   const TradeDetailScreen({
     super.key,
     required this.trade,
@@ -29,6 +38,8 @@ class TradeDetailScreen extends StatefulWidget {
     required this.accountLabel,
     required this.initialJournal,
     required this.onJournalSaved,
+    this.client,
+    this.strategyApi = const StrategyApiService(),
   });
 
   @override
@@ -60,6 +71,7 @@ class _TradeDetailScreenState extends State<TradeDetailScreen> {
   late List<String> _attachments;
   late Set<String> _selectedStrategyNames;
   late Map<String, String> _strategyIdsByName;
+  List<StrategyDraft> _drafts = const <StrategyDraft>[];
   late Set<String> _selectedSessions;
   Journal? _journal;
   bool _editing = false;
@@ -100,6 +112,20 @@ class _TradeDetailScreenState extends State<TradeDetailScreen> {
     _attachments = [...?j?.attachments];
     if (j?.screenshots != null && !_attachments.contains(j!.screenshots)) {
       _attachments.insert(0, j.screenshots!);
+    }
+    _loadDrafts();
+  }
+
+  /// Saved setups are user-scoped. A missing token or a backend error must not
+  /// block journal editing, so drafts are an additive part of the picker.
+  Future<void> _loadDrafts() async {
+    if (!widget.strategyApi.hasToken) return;
+    try {
+      final drafts = await widget.strategyApi.fetchDrafts();
+      if (!mounted) return;
+      setState(() => _drafts = drafts);
+    } catch (_) {
+      // The seed playbooks and any journaled strategies stay available.
     }
   }
 
@@ -371,11 +397,12 @@ class _TradeDetailScreenState extends State<TradeDetailScreen> {
         ),
         const SizedBox(height: 5),
         const Text(
-          'Advanced mode fetches real historical candles around the trade and marks only three levels: white entry, red stop loss and green take profit. Use the full-screen button to inspect where price touched SL or TP; Simple mode is the lightweight native view.',
+          'Fetches the complete MT5 broker session for this trade from your connected terminal and opens on its date — bars before entry and after exit are retained. Entry and exit markers use the exact trade time and price. No alternative market-data provider is used.',
           style: TextStyle(color: _muted, fontSize: 11, height: 1.4),
         ),
         TradeCandlestickChart(
           trade: widget.trade,
+          client: widget.client,
           strategyNames: _chartStrategyNames,
         ),
       ],
@@ -661,21 +688,32 @@ class _TradeDetailScreenState extends State<TradeDetailScreen> {
     _ => session,
   };
 
+  /// User-created setups lead the picker so a strategy saved in the Strategies
+  /// tab is immediately visible here, followed by the shared playbooks.
   List<String> get _strategyOptions => {
+    ..._drafts.map((draft) => draft.name),
     ...seedStrategies.map((strategy) => strategy.name),
     ..._selectedStrategyNames,
   }.toList();
 
   List<String> get _orderedSelectedStrategyNames => [
+    ..._drafts
+        .map((draft) => draft.name)
+        .where(_selectedStrategyNames.contains),
     ...seedStrategies
         .map((strategy) => strategy.name)
         .where(_selectedStrategyNames.contains),
     ..._selectedStrategyNames.where(
-      (name) => !seedStrategies.any((strategy) => strategy.name == name),
+      (name) =>
+          !_drafts.any((draft) => draft.name == name) &&
+          !seedStrategies.any((strategy) => strategy.name == name),
     ),
   ];
 
   String? _strategyIdForName(String name) {
+    for (final draft in _drafts) {
+      if (draft.name == name) return draft.id;
+    }
     for (final strategy in seedStrategies) {
       if (strategy.name == name) return strategy.id;
     }

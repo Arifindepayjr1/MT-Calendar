@@ -82,7 +82,9 @@ client on its next fetch.
 6. The Create Account → OTP path uses `POST /auth/request-code` to store a
    hashed 6-digit code (10-minute TTL, five attempts) and `POST /auth/verify-code`
    to create the user with the stored hash and return the same JWT shape.
-   `devCode` is echoed only in development because no email/SMS provider exists.
+   With `SMTP_APP_PASSWORD` set, Nodemailer emails the code to the registered
+   address and `devCode` is omitted; otherwise development echoes it as a
+   fallback so the OTP screen remains testable.
 
 Protected strategy routes use `@UseGuards(JwtAuthGuard)` and
 `@CurrentUser('id')`, so a draft can never be attributed to another account.
@@ -100,7 +102,7 @@ Protected strategy routes use `@UseGuards(JwtAuthGuard)` and
 | GET | `/api/strategies/:id` | public | Rulebook detail |
 | GET | `/api/strategies/drafts` | Bearer | Current user's drafts |
 | POST | `/api/strategies` | Bearer | Persist a new draft |
-| GET | `/api/candles` | public | Yahoo Finance chart proxy |
+| GET | `/api/mt5/candles` | public | Real MT5 broker OHLC session |
 
 Validation failures return Nest's standard 400 payload. Missing/invalid tokens
 return 401; unknown strategy ids return 404 with `{"error":"Strategy not found."}`.
@@ -110,9 +112,10 @@ return 401; unknown strategy ids return 404 with `{"error":"Strategy not found."
 `AuthStore` is initialised in `main()` from SharedPreferences, so a token
 survives app restarts. `main()` also initialises `TradeImportStore`; the local
 MT5 report is stored under its own SharedPreferences key and is never cleared
-by sign-in or sign-out. The app opens on the three-screen auth suite unless the
-user chooses "Continue as guest"; the Settings tab can also open the suite.
-A successful login or OTP verification saves `AuthSession` to the store.
+by sign-in or sign-out. The app opens on the three-screen auth suite; there is
+no guest bypass and the root login step has no back route to Home. The Settings
+tab can also open the suite. A successful login or OTP verification saves
+`AuthSession` to the store.
 `MainNavigationScreen` gives `StrategyApiService` a `tokenProvider` closure that
 reads `authStore.token` at request time, so draft POSTs use the current token
 and public catalogue reads remain unchanged. `HomeScreen` rehydrates from
